@@ -487,6 +487,13 @@ function scoreEmoji(score: number) {
     })}
   </div>
 
+  <!-- Controles de paginación -->
+  <div id="pagination-controls" style="display: flex; justify-content: center; align-items: center; gap: 15px; margin: 32px 0 16px; padding: 12px; clear: both;">
+    <button class="btn-sm btn-outline" id="btn-page-prev" style="min-width: 100px; padding: 8px 16px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface2); color: var(--text); cursor: pointer;">◀ Anterior</button>
+    <span id="page-info" style="font-size: 14px; color: var(--muted); font-weight: 600; text-align: center; min-width: 200px;">Página 1 de 1</span>
+    <button class="btn-sm btn-outline" id="btn-page-next" style="min-width: 100px; padding: 8px 16px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface2); color: var(--text); cursor: pointer;">Siguiente ▶</button>
+  </div>
+
   <script>
     // Filter elements
     const cards = document.querySelectorAll('.tender-card');
@@ -499,25 +506,33 @@ function scoreEmoji(score: number) {
     let activeFilterTab = 'all'; // 'all', 'recommended', 'closing'
     let scoreFilterActive = false;
 
+    // Parámetros de paginación
+    const PAGE_SIZE = 20;
+    let currentPage = 1;
+    let totalPages = 1;
+
+    const btnPrev = document.getElementById('btn-page-prev') as HTMLButtonElement | null;
+    const btnNext = document.getElementById('btn-page-next') as HTMLButtonElement | null;
+    const pageInfo = document.getElementById('page-info');
+
     // Combined filtering function
-    function applyFilters() {
+    function applyFilters(resetPage = true) {
       try {
-        const query = searchInput ? searchInput.value.toLowerCase().trim() : '';
-        const selectedRegion = regionSelect ? regionSelect.value : 'all';
-        const selectedCategory = categorySelect ? categorySelect.value : 'all';
+        if (resetPage) {
+          currentPage = 1;
+        }
+
+        const query = searchInput ? (searchInput as HTMLInputElement).value.toLowerCase().trim() : '';
+        const selectedRegion = regionSelect ? (regionSelect as HTMLSelectElement).value : 'all';
+        const selectedCategory = categorySelect ? (categorySelect as HTMLSelectElement).value : 'all';
         const selectedStatus = statusSelect ? statusSelect.value : 'all';
 
-        console.log('[VC Elemental MP] Aplicando filtros:', {
-          query,
-          selectedRegion,
-          selectedCategory,
-          selectedStatus,
-          activeFilterTab,
-          scoreFilterActive,
-          totalCards: cards.length
-        });
+        let matchedCount = 0;
+        const startIdx = (currentPage - 1) * PAGE_SIZE;
+        const endIdx = currentPage * PAGE_SIZE;
 
-        cards.forEach(card => {
+        cards.forEach((c) => {
+          const card = c as HTMLElement;
           const score = parseInt(card.dataset.score || '0');
           const days = parseInt(card.dataset.days || '0');
           const region = card.dataset.region || 'OTHER';
@@ -552,13 +567,36 @@ function scoreEmoji(score: number) {
                   ? isCompraAgil
                   : true;
 
-          // Apply combined visibility
+          // Apply combined visibility with pagination slicing
           if (matchesQuery && matchesRegion && matchesCategory && matchesStatus && matchesScoreToggle && matchesTab) {
-            card.style.display = '';
+            if (matchedCount >= startIdx && matchedCount < endIdx) {
+              card.style.display = 'grid'; // Utiliza el layout de grid del CSS original
+            } else {
+              card.style.display = 'none';
+            }
+            matchedCount++;
           } else {
             card.style.display = 'none';
           }
         });
+
+        // Update pagination UI
+        totalPages = Math.ceil(matchedCount / PAGE_SIZE) || 1;
+        if (pageInfo) {
+          pageInfo.innerText = `Página ${currentPage} de ${totalPages} (${matchedCount} encontradas)`;
+        }
+
+        if (btnPrev) {
+          btnPrev.disabled = currentPage === 1;
+          btnPrev.style.opacity = currentPage === 1 ? '0.4' : '1';
+          btnPrev.style.pointerEvents = currentPage === 1 ? 'none' : 'auto';
+        }
+        if (btnNext) {
+          btnNext.disabled = currentPage === totalPages;
+          btnNext.style.opacity = currentPage === totalPages ? '0.4' : '1';
+          btnNext.style.pointerEvents = currentPage === totalPages ? 'none' : 'auto';
+        }
+
       } catch (err) {
         console.error('[VC Elemental MP Error] Fallo en applyFilters:', err);
       }
@@ -690,6 +728,35 @@ function scoreEmoji(score: number) {
         applyFilters();
       });
     });
+
+    // Controladores de navegación de página
+    const scrollContainer = document.getElementById('tender-list');
+    
+    if (btnPrev) {
+      btnPrev.addEventListener('click', (e) => {
+        e.preventDefault();
+        if (currentPage > 1) {
+          currentPage--;
+          applyFilters(false);
+          if (scrollContainer) {
+            scrollContainer.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          }
+        }
+      });
+    }
+
+    if (btnNext) {
+      btnNext.addEventListener('click', (e) => {
+        e.preventDefault();
+        if (currentPage < totalPages) {
+          currentPage++;
+          applyFilters(false);
+          if (scrollContainer) {
+            scrollContainer.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          }
+        }
+      });
+    }
 
     // Initial run
     applyFilters();
