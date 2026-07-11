@@ -103,6 +103,8 @@ try {
   errorMsg = `No se pudo conectar a la base de datos PostgreSQL. Mensaje de error: ${err.message}. Asegúrate de haber configurado la variable de entorno DATABASE_URL en Vercel con la cadena de conexión correcta de Supabase.`;
 }
 
+const cronSecret = process.env.CRON_SECRET || '';
+
 const kpis = {
   total: mockTenders.length,
   recommended: mockTenders.filter(t => t.scoreTotal >= 70).length,
@@ -321,7 +323,7 @@ function scoreEmoji(score: number) {
     </div>
     <div class="topbar-right" style="position: relative; display: flex; flex-direction: column; align-items: flex-end; gap: 8px;">
       <div style="display: flex; gap: 10px; align-items: center;">
-        <button class="btn-sm btn-outline" id="btn-refresh">🔄 Actualizar</button>
+        <button class="btn-sm btn-outline" id="btn-refresh" data-cron-secret={cronSecret}>🔄 Actualizar</button>
         <a href="/dashboard/alertas" class="btn-sm btn-primary" id="btn-alertas">🔔 Configurar Alertas</a>
       </div>
       <!-- Progress Bar Container -->
@@ -649,7 +651,16 @@ function scoreEmoji(score: number) {
         progressText.textContent = 'Iniciando conexión...';
 
         try {
-          const res = await fetch('/api/sync', { method: 'POST' });
+          const secret = (refreshBtn as HTMLElement).dataset.cronSecret || '';
+          const headers: Record<string, string> = {};
+          if (secret) {
+            headers['Authorization'] = `Bearer ${secret}`;
+          }
+
+          const res = await fetch('/api/sync', { 
+            method: 'POST',
+            headers
+          });
           if (!res.ok) {
             throw new Error('La llamada a la API falló');
           }
