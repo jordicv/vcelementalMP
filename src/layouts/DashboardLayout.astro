@@ -1,0 +1,139 @@
+---
+interface Props {
+  title: string;
+  activeTab: 'dashboard' | 'alertas' | 'equipo' | 'configuracion' | 'facturacion';
+}
+
+const { title, activeTab } = Astro.props;
+---
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{title} — VC Elemental MP</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;900&display=swap" rel="stylesheet">
+  <style is:global>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #0a0f1e; --surface: #111827; --surface2: #1a2332;
+      --border: #1f2937; --accent: #3b82f6; --accent2: #8b5cf6;
+      --text: #f1f5f9; --muted: #64748b; --muted2: #94a3b8;
+      --green: #22c55e; --yellow: #eab308; --orange: #f97316; --red: #ef4444;
+    }
+    body { font-family: 'Inter', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+
+    /* Layout */
+    .layout { display: grid; grid-template-columns: 240px 1fr; min-height: 100vh; }
+
+    /* Sidebar */
+    .sidebar {
+      background: var(--surface); border-right: 1px solid var(--border);
+      padding: 24px 0; display: flex; flex-direction: column; position: sticky; top: 0; height: 100vh;
+    }
+    .sidebar-logo { padding: 0 20px 24px; border-bottom: 1px solid var(--border); }
+    .logo-text { font-size: 20px; font-weight: 900; text-decoration: none; color: var(--text); }
+    .logo-text span { background: linear-gradient(135deg, #3b82f6, #8b5cf6); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+    .logo-sub { font-size: 11px; color: var(--muted); margin-top: 2px; }
+    .sidebar-nav { flex: 1; padding: 16px 12px; display: flex; flex-direction: column; gap: 4px; }
+    .nav-item {
+      display: flex; align-items: center; gap: 10px; padding: 10px 12px;
+      border-radius: 8px; text-decoration: none; color: var(--muted2);
+      font-size: 14px; font-weight: 500; transition: all 0.15s;
+    }
+    .nav-item:hover, .nav-item.active { background: rgba(59,130,246,0.1); color: var(--text); }
+    .nav-item.active { color: var(--accent); }
+    .nav-icon { width: 18px; text-align: center; }
+    .sidebar-footer { padding: 16px 12px; border-top: 1px solid var(--border); }
+    .user-chip {
+      display: flex; align-items: center; gap: 10px; padding: 10px 12px;
+      background: var(--surface2); border-radius: 10px;
+    }
+    .user-avatar {
+      width: 32px; height: 32px; border-radius: 50%;
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 700;
+    }
+    .user-info { flex: 1; min-width: 0; }
+    .user-name { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .user-role { font-size: 11px; color: var(--muted); }
+    .plan-badge {
+      font-size: 10px; background: linear-gradient(135deg, var(--accent), var(--accent2));
+      color: white; padding: 2px 7px; border-radius: 50px; font-weight: 700;
+    }
+
+    /* Main content */
+    .main { display: flex; flex-direction: column; overflow-y: auto; height: 100vh; }
+    .topbar {
+      padding: 20px 32px; border-bottom: 1px solid var(--border);
+      display: flex; justify-content: space-between; align-items: center;
+      background: var(--surface); position: sticky; top: 0; z-index: 10;
+    }
+    .topbar-left h1 { font-size: 20px; font-weight: 700; }
+    .topbar-left p { font-size: 13px; color: var(--muted); margin-top: 2px; }
+    .topbar-right { display: flex; gap: 10px; align-items: center; }
+    .btn-sm {
+      padding: 8px 16px; border-radius: 8px; font-size: 13px; font-weight: 600;
+      border: none; cursor: pointer; text-decoration: none; transition: all 0.15s;
+    }
+    .btn-primary { background: linear-gradient(135deg, var(--accent), var(--accent2)); color: white; border: none; }
+    .btn-primary:hover { opacity: 0.9; }
+    .btn-outline { background: transparent; border: 1px solid var(--border); color: var(--muted2); }
+    .btn-outline:hover { border-color: var(--accent); color: var(--text); }
+  </style>
+</head>
+<body>
+<div class="layout">
+
+  <!-- Sidebar -->
+  <aside class="sidebar">
+    <div class="sidebar-logo">
+      <a href="/" class="logo-text">VC Elemental <span>MP</span></a>
+      <div class="logo-sub">Radar de Licitaciones</div>
+    </div>
+    <nav class="sidebar-nav">
+      <a href="/dashboard" class={`nav-item ${activeTab === 'dashboard' ? 'active' : ''}`} id="nav-dashboard">
+        <span class="nav-icon">🏛️</span> Dashboard
+      </a>
+      <a href="/dashboard/alertas" class={`nav-item ${activeTab === 'alertas' ? 'active' : ''}`} id="nav-alertas">
+        <span class="nav-icon">🔔</span> Alertas
+      </a>
+      <a href="/dashboard/equipo" class={`nav-item ${activeTab === 'equipo' ? 'active' : ''}`} id="nav-equipo">
+        <span class="nav-icon">👥</span> Equipo
+      </a>
+      <a href="/dashboard/configuracion" class={`nav-item ${activeTab === 'configuracion' ? 'active' : ''}`} id="nav-configuracion">
+        <span class="nav-icon">⚙️</span> Configuración
+      </a>
+      <a href="/dashboard/facturacion" class={`nav-item ${activeTab === 'facturacion' ? 'active' : ''}`} id="nav-facturacion">
+        <span class="nav-icon">💳</span> Facturación
+        <span class="plan-badge" style="margin-left:auto">Growth</span>
+      </a>
+
+      <!-- Apartado Informativo: Cómo Postular -->
+      <div class="how-to-apply-box" style="margin-top: auto; padding: 12px; background: rgba(59, 130, 246, 0.05); border: 1px solid rgba(59, 130, 246, 0.15); border-radius: 10px;">
+        <div style="font-size: 12px; font-weight: 700; color: var(--text); margin-bottom: 6px; display: flex; align-items: center; gap: 6px;">
+          <span>🚀</span> Cómo Postular
+        </div>
+        <p style="font-size: 11px; color: var(--muted2); line-height: 1.4; margin: 0;">
+          Para postular, abre una licitación, sigue la <strong>Guía Paso a Paso 🚀</strong> por fases, y carga los anexos en la ficha oficial del portal.
+        </p>
+      </div>
+    </nav>
+    <div class="sidebar-footer">
+      <div class="user-chip">
+        <div class="user-avatar">JV</div>
+        <div class="user-info">
+          <div class="user-name">José Valdés</div>
+          <div class="user-role">Owner · VC Elemental</div>
+        </div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- Main Content Wrapper -->
+  <main class="main">
+    <slot />
+  </main>
+</div>
+</body>
+</html>

@@ -1,0 +1,661 @@
+---
+import DashboardLayout from '../../layouts/DashboardLayout.astro';
+import { db, tenders, companies } from '../../db/index';
+import { desc } from 'drizzle-orm';
+import { RUBRO_KEYWORDS } from '../../services/scoring/rubro.scorer';
+
+function cleanRegionName(regionStr: string | null): string {
+  if (!regionStr) return 'No especificada';
+  const clean = regionStr.trim().replace(/\s+/g, ' ');
+  if (clean.includes('Metropolitana') || clean.includes('Santiago')) return 'Región Metropolitana';
+  if (clean.includes('Valparaíso') || clean.includes('Valparaiso')) return 'Región de Valparaíso';
+  if (clean.includes('Atacama')) return 'Región de Atacama';
+  if (clean.includes('Coquimbo')) return 'Región de Coquimbo';
+  if (clean.includes('Antofagasta')) return 'Región de Antofagasta';
+  if (clean.includes('Arica') || clean.includes('Parinacota')) return 'Región de Arica y Parinacota';
+  if (clean.includes('Tarapacá') || clean.includes('Tarapaca')) return 'Región de Tarapacá';
+  if (clean.includes('Libertador') || clean.includes('O\'Higgins') || clean.includes('O´Higgins')) return 'Región de O\'Higgins';
+  if (clean.includes('Maule')) return 'Región del Maule';
+  if (clean.includes('Ñuble') || clean.includes('Nuble')) return 'Región del Ñuble';
+  if (clean.includes('Biobío') || clean.includes('Biobio') || clean.includes('Bío Bío')) return 'Región del Biobío';
+  if (clean.includes('Araucanía') || clean.includes('Araucania')) return 'Región de la Araucanía';
+  if (clean.includes('Los Ríos') || clean.includes('Los Rios')) return 'Región de Los Ríos';
+  if (clean.includes('Los Lagos') || clean.includes('Los Lagos')) return 'Región de Los Lagos';
+  if (clean.includes('Aysén') || clean.includes('Aysen') || clean.includes('Carlos Ibáñez') || clean.includes('Ibáñez')) return 'Región de Aysén';
+  if (clean.includes('Magallanes')) return 'Región de Magallanes';
+  return clean;
+}
+
+// 1. Obtener la empresa activa para mapear etiquetas personalizadas y rubro de cálculo
+const company = (await db.select().from(companies).limit(1))[0] || { industry: '', region: '' };
+
+// 2. Obtener todas las licitaciones desde PostgreSQL usando Drizzle ORM
+const liveTenders = await db
+  .select()
+  .from(tenders)
+  .orderBy(desc(tenders.scoreTotalVal));
+
+// Mapear los datos de la base de datos al formato visual
+const mockTenders = liveTenders.map(t => {
+  const budgetVal = t.budget ? parseFloat(t.budget) : 0;
+  
+  const isNoIndustry = company.industry === 'Sin rubro específico';
+  const isNoRegion = company.region === 'Sin región específica';
+
+  // Clasificar rubro de la licitación de forma dinámica para filtrar en la UI
+  const text = `${t.title} ${t.aiSummary || ''}`.toLowerCase();
+  let detectedIndustry = 'Otros';
+  let maxMatches = 0;
+
+  for (const [indName, keywords] of Object.entries(RUBRO_KEYWORDS)) {
+    const matches = keywords.filter(k => text.includes(k.toLowerCase())).length;
+    if (matches > maxMatches) {
+      maxMatches = matches;
+      detectedIndustry = indName;
+    }
+  }
+
+  const closeDateObj = t.closeDate || new Date(Date.now() + 10 * 86400000);
+  const daysVal = Math.floor((closeDateObj.getTime() - Date.now()) / 86400000);
+  const isClosed = t.status === 'Cerrada' || t.status === 'Adjudicada' || daysVal <= 0;
+  const computedStatus = isClosed ? 'Cerrada' : (t.status || 'Publicada');
+
+  // Mapeamos los desgloses guardados para la UI
+  return {
+    id:           t.id,
+    externalCode: t.externalCode,
+    title:        t.title,
+    status:       computedStatus,
+    budget:       budgetVal,
+    currency:     t.currency || 'CLP', // Leemos la moneda original de la DB
+    closeDate:    closeDateObj,
+    buyerName:    t.buyerName || 'Organismo Público',
+    buyerRegion:  t.buyerRegion || 'Región Metropolitana',
+    buyerCommune: t.buyerCommune || null,
+    scoreTotal:   t.scoreTotalVal ?? 0,
+    scoreRubro:   t.scoreRubro ?? 0,
+    scoreRegion:  t.scoreRegion ?? 0,
+    scoreBudget:  t.scoreBudget ?? 0,
+    scoreUrgency: t.scoreUrgency ?? 0,
+    scoreLabel:   t.scoreLabel || 'Evaluar',
+    detectedIndustry: detectedIndustry, // Guardamos la clasificación
+    rubroLabel:   isNoIndustry ? 'Evaluación neutral (Sin rubro)' : (t.scoreRubro && t.scoreRubro >= 40 ? 'Coincidencia exacta' : t.scoreRubro && t.scoreRubro >= 25 ? 'Rubro relacionado' : 'Sin relación'),
+    regionLabel:  isNoRegion ? 'Alcance nacional (Sin región)' : (t.scoreRegion && t.scoreRegion >= 30 ? 'Misma región' : t.scoreRegion && t.scoreRegion >= 20 ? 'Región limítrofe' : 'Macrozona o lejana'),
+    budgetLabel:  t.scoreBudget && t.scoreBudget >= 20 ? 'Rango ideal' : t.scoreBudget && t.scoreBudget >= 12 ? 'Sobre el rango' : 'Fuera de rango',
+    urgencyLabel: t.scoreUrgency && t.scoreUrgency >= 10 ? 'Tiempo cómodo' : t.scoreUrgency && t.scoreUrgency >= 7 ? 'Plazo ajustado' : 'Urgente',
+    aiSummary:    t.aiSummary || 'Monitoreo de recomendación IA activo para este rubro. Haz clic para ver el desglose.',
+    normalizedRegion: cleanRegionName(t.buyerRegion),
+  };
+});
+
+const regionsList = Array.from(new Set(mockTenders.map(t => t.normalizedRegion)))
+  .filter(r => r !== 'No especificada')
+  .sort();
+
+const kpis = {
+  total: mockTenders.length,
+  recommended: mockTenders.filter(t => t.scoreTotal >= 70).length,
+  closingSoon: mockTenders.filter(t => {
+    const days = Math.floor((t.closeDate.getTime() - Date.now()) / 86400000);
+    return days <= 7;
+  }).length,
+  avgScore: Math.round(mockTenders.reduce((a, t) => a + t.scoreTotal, 0) / mockTenders.length),
+};
+
+function formatBudget(budget: number, currency: string) {
+  if (budget <= 0) return 'No especificado';
+  
+  if (currency === 'CLP') {
+    if (budget >= 1000000) return `$${(budget / 1000000).toFixed(1)}M CLP`;
+    return `$${(budget / 1000).toFixed(0)}K CLP`;
+  }
+  
+  // Conversión aproximada para visualización en pesos chilenos
+  let equivalentClp = budget;
+  if (currency === 'UTM') {
+    equivalentClp = budget * 66000;
+    const clpText = equivalentClp >= 1000000 ? `${(equivalentClp / 1000000).toFixed(1)}M` : `${(equivalentClp / 1000).toFixed(0)}K`;
+    return `${budget.toLocaleString('es-CL')} UTM (~$${clpText} CLP)`;
+  }
+  if (currency === 'UF') {
+    equivalentClp = budget * 38000;
+    const clpText = equivalentClp >= 1000000 ? `${(equivalentClp / 1000000).toFixed(1)}M` : `${(equivalentClp / 1000).toFixed(0)}K`;
+    return `${budget.toLocaleString('es-CL')} UF (~$${clpText} CLP)`;
+  }
+  if (currency === 'USD') {
+    equivalentClp = budget * 930;
+    const clpText = equivalentClp >= 1000000 ? `${(equivalentClp / 1000000).toFixed(1)}M` : `${(equivalentClp / 1000).toFixed(0)}K`;
+    return `$${budget.toLocaleString('es-CL')} USD (~$${clpText} CLP)`;
+  }
+
+  return `${budget.toLocaleString('es-CL')} ${currency}`;
+}
+
+function daysLeft(date: Date) {
+  return Math.floor((date.getTime() - Date.now()) / 86400000);
+}
+
+function scoreColor(score: number) {
+  if (score >= 80) return '#22c55e';
+  if (score >= 60) return '#eab308';
+  if (score >= 40) return '#f97316';
+  return '#ef4444';
+}
+
+function scoreEmoji(score: number) {
+  if (score >= 80) return '🟢';
+  if (score >= 60) return '🟡';
+  if (score >= 40) return '🟠';
+  return '🔴';
+}
+---
+<DashboardLayout title="Dashboard de Licitaciones" activeTab="dashboard">
+  <style>
+    /* KPIs */
+    .kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; padding: 24px 32px; }
+    .kpi-card {
+      background: var(--surface); border: 1px solid var(--border); border-radius: 14px;
+      padding: 20px; transition: border-color 0.2s;
+    }
+    .kpi-card:hover { border-color: var(--accent); }
+    .kpi-icon { font-size: 24px; margin-bottom: 12px; }
+    .kpi-value { font-size: 32px; font-weight: 900; line-height: 1; margin-bottom: 4px; }
+    .kpi-label { font-size: 13px; color: var(--muted); }
+
+    /* Filters */
+    .filters {
+      padding: 0 32px 16px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
+    }
+    .filter-group { display: flex; gap: 8px; flex-wrap: wrap; flex: 1; }
+    .filter-btn {
+      padding: 7px 14px; border-radius: 20px; font-size: 12px; font-weight: 600;
+      border: 1px solid var(--border); background: transparent; color: var(--muted2);
+      cursor: pointer; transition: all 0.15s;
+    }
+    .filter-btn:hover, .filter-btn.active { border-color: var(--accent); color: var(--accent); background: rgba(59,130,246,0.08); }
+    .filter-score {
+      padding: 7px 14px; border-radius: 20px; font-size: 12px; font-weight: 600;
+      border: 1px solid var(--green); color: var(--green); background: rgba(34,197,94,0.08);
+      cursor: pointer; opacity: 0.6; transition: opacity 0.2s;
+    }
+    .search-box {
+      padding: 8px 14px; background: var(--surface); border: 1px solid var(--border);
+      border-radius: 8px; color: var(--text); font-size: 13px; width: 220px;
+      outline: none; font-family: 'Inter', sans-serif;
+    }
+    .search-box:focus { border-color: var(--accent); }
+    .search-box::placeholder { color: var(--muted); }
+
+    /* Category Tabs */
+    .category-tabs {
+      padding: 8px 32px 16px;
+      margin: 8px 0;
+      display: flex;
+      gap: 10px;
+      overflow-x: auto;
+      scrollbar-width: none; /* Firefox */
+      clear: both;
+    }
+    .category-tabs::-webkit-scrollbar {
+      display: none; /* Safari and Chrome */
+    }
+    .category-tab-btn {
+      padding: 10px 18px;
+      border-radius: 10px;
+      font-size: 13px;
+      font-weight: 600;
+      border: 1px solid var(--border);
+      background: var(--surface2);
+      color: var(--muted2);
+      cursor: pointer;
+      white-space: nowrap;
+      transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    .category-tab-btn:hover {
+      border-color: var(--muted);
+      color: var(--text);
+      transform: translateY(-1px);
+    }
+    .category-tab-btn.active {
+      background: rgba(59, 130, 246, 0.12);
+      border-color: var(--accent);
+      color: var(--accent);
+      box-shadow: 0 4px 12px rgba(59,130,246,0.15);
+    }
+
+    /* Tender List */
+    .tender-list { padding: 12px 32px 32px; display: flex; flex-direction: column; gap: 14px; }
+    .tender-card {
+      background: var(--surface); border: 1px solid var(--border); border-radius: 16px;
+      padding: 22px; display: grid; grid-template-columns: 1fr 260px;
+      gap: 20px; align-items: start; transition: border-color 0.2s, transform 0.2s;
+      cursor: pointer; text-decoration: none; color: inherit;
+    }
+    .tender-card:hover { border-color: rgba(59,130,246,0.4); transform: translateY(-1px); }
+    .tender-card.score-high  { border-left: 3px solid var(--green); }
+    .tender-card.score-good  { border-left: 3px solid var(--yellow); }
+    .tender-card.score-mid   { border-left: 3px solid var(--orange); }
+    .tender-card.score-low   { border-left: 3px solid var(--red); }
+    
+    .tender-meta { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; flex-wrap: wrap; }
+    .status-badge {
+      font-size: 11px; font-weight: 600; padding: 3px 10px; border-radius: 50px;
+    }
+    .status-badge.status-open {
+      background: rgba(34,197,94,0.1); color: var(--green); border: 1px solid rgba(34,197,94,0.2);
+    }
+    .status-badge.status-closed {
+      background: rgba(239,68,68,0.1); color: var(--red); border: 1px solid rgba(239,68,68,0.2);
+    }
+    .code-badge {
+      font-size: 11px; font-family: monospace; color: var(--muted);
+      background: var(--surface2); padding: 3px 8px; border-radius: 4px;
+    }
+    .days-badge {
+      font-size: 11px; font-weight: 600; padding: 3px 10px; border-radius: 50px;
+    }
+    .days-urgent { background: rgba(239,68,68,0.1); color: var(--red); border: 1px solid rgba(239,68,68,0.2); }
+    .days-ok     { background: rgba(59,130,246,0.1); color: var(--accent); border: 1px solid rgba(59,130,246,0.2); }
+    .tender-title { font-size: 16px; font-weight: 700; margin-bottom: 8px; line-height: 1.3; }
+    .tender-buyer { font-size: 13px; color: var(--muted2); margin-bottom: 10px; display: flex; flex-direction: column; gap: 2px; }
+    .buyer-location { color: var(--muted2); font-size: 12px; opacity: 0.85; }
+    .tender-ai {
+      font-size: 12px; color: var(--muted); background: rgba(139,92,246,0.07);
+      border: 1px solid rgba(139,92,246,0.15); border-radius: 8px; padding: 10px 12px; line-height: 1.5;
+    }
+    .tender-ai-icon { color: #a78bfa; font-weight: 600; }
+
+    /* Score Panel */
+    .score-panel {
+      background: var(--surface2); border-radius: 12px; padding: 16px;
+    }
+    .score-header {
+      display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px;
+    }
+    .score-total-num {
+      font-size: 36px; font-weight: 900; line-height: 1;
+    }
+    .score-label-text { font-size: 12px; color: var(--muted); margin-top: 2px; }
+    .score-dim { margin-bottom: 10px; }
+    .score-dim:last-child { margin-bottom: 0; }
+    .score-dim-header { display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 5px; }
+    .score-dim-name { color: var(--muted2); }
+    .score-dim-val { color: var(--text); font-weight: 600; }
+
+    /* Budget pill */
+    .budget-pill {
+      display: inline-flex; align-items: center; gap: 6px;
+      background: rgba(34,197,94,0.1); border: 1px solid rgba(34,197,94,0.2);
+      color: var(--green); padding: 4px 12px; border-radius: 50px;
+      font-size: 13px; font-weight: 700; margin-top: 8px;
+    }
+  </style>
+
+  <!-- Topbar -->
+  <div class="topbar">
+    <div class="topbar-left">
+      <h1>📊 Dashboard de Licitaciones</h1>
+      <p>Datos de hoy · Actualizado hace 3 min</p>
+    </div>
+    <div class="topbar-right" style="position: relative; display: flex; flex-direction: column; align-items: flex-end; gap: 8px;">
+      <div style="display: flex; gap: 10px; align-items: center;">
+        <button class="btn-sm btn-outline" id="btn-refresh">🔄 Actualizar</button>
+        <a href="/dashboard/alertas" class="btn-sm btn-primary" id="btn-alertas">🔔 Configurar Alertas</a>
+      </div>
+      <!-- Progress Bar Container -->
+      <div id="sync-progress-container" style="display: none; width: 100%; max-width: 250px; background: var(--surface2); border: 1px solid var(--border); border-radius: 4px; height: 6px; overflow: hidden; margin-top: 2px;">
+        <div id="sync-progress-bar" style="width: 0%; height: 100%; background: linear-gradient(90deg, var(--accent), var(--accent2)); transition: width 0.2s ease;"></div>
+      </div>
+      <div id="sync-progress-text" style="display: none; font-size: 11px; color: var(--muted); margin-top: -4px;">Conectando...</div>
+    </div>
+  </div>
+
+  <!-- KPIs -->
+  <div class="kpis">
+    <div class="kpi-card">
+      <div class="kpi-icon">🏛️</div>
+      <div class="kpi-value">{kpis.total}</div>
+      <div class="kpi-label">Licitaciones hoy</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-icon">🟢</div>
+      <div class="kpi-value" style="color: var(--green)">{kpis.recommended}</div>
+      <div class="kpi-label">Muy recomendadas (≥70)</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-icon">⏰</div>
+      <div class="kpi-value" style="color: var(--orange)">{kpis.closingSoon}</div>
+      <div class="kpi-label">Cierran en ≤7 días</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-icon">🎯</div>
+      <div class="kpi-value" style="color: var(--accent)">{kpis.avgScore}</div>
+      <div class="kpi-label">Score promedio</div>
+    </div>
+  </div>
+
+    <!-- Filters -->
+    <div class="filters">
+      <input class="search-box" type="text" placeholder="🔍 Buscar licitación..." id="search-input" />
+      
+      <select class="search-box" id="region-select">
+        <option value="all">📍 Todas las Regiones</option>
+        {regionsList.map(r => (
+          <option value={r}>{r}</option>
+        ))}
+        <option value="No especificada">📍 Sin Región Especificada</option>
+      </select>
+
+      <select class="search-box" id="category-select">
+        <option value="all">🏷️ Todos los Rubros</option>
+        <option value="Tecnología">💻 Tecnología</option>
+        <option value="Construcción">🏗️ Construcción</option>
+        <option value="Salud">🏥 Salud</option>
+        <option value="Educación">🏫 Educación</option>
+        <option value="Capacitación">🎓 Capacitación</option>
+        <option value="Consultoría">💼 Consultoría</option>
+        <option value="Transporte">🚚 Transporte</option>
+        <option value="Alimentación">🍽️ Alimentación</option>
+        <option value="Seguridad">🛡️ Seguridad</option>
+        <option value="Limpieza">🧹 Limpieza</option>
+        <option value="Marketing">📢 Marketing</option>
+        <option value="Energía y Combustibles">⚡ Energía y Combustibles</option>
+        <option value="Ingeniería y Diseño">📐 Ingeniería y Diseño</option>
+        <option value="Ferretería y Materiales">🔧 Ferretería y Materiales</option>
+        <option value="Mobiliario">🪑 Mobiliario</option>
+        <option value="Otros">⚙️ Otros</option>
+      </select>
+
+      <select class="search-box" id="status-select">
+        <option value="all">🌐 Todos los Estados</option>
+        <option value="Publicada">🟢 Abiertas (Publicadas)</option>
+        <option value="Cerrada">🔴 Cerradas</option>
+        <option value="Adjudicada">🔵 Adjudicadas</option>
+      </select>
+
+      <div class="filter-group">
+        <button class="filter-btn active" id="filter-all" data-filter="all">Todas</button>
+        <button class="filter-btn" id="filter-recommended" data-filter="recommended">🟢 Recomendadas</button>
+        <button class="filter-btn" id="filter-closing" data-filter="closing">⏰ Cierran pronto</button>
+        <button class="filter-btn" id="filter-compra-agil" data-filter="compra-agil">⚡ Compra Ágil</button>
+        <button class="filter-score" id="filter-score">≥70 Score</button>
+      </div>
+    </div>
+
+    <!-- Tender List -->
+    <div class="tender-list" id="tender-list">
+      {mockTenders.map(t => {
+        const days = daysLeft(t.closeDate);
+        const color = scoreColor(t.scoreTotal);
+        const cardClass = t.scoreTotal >= 80 ? 'score-high' : t.scoreTotal >= 60 ? 'score-good' : t.scoreTotal >= 40 ? 'score-mid' : 'score-low';
+        
+        return (
+          <a class={`tender-card ${cardClass}`} id={`tender-${t.id}`}
+               href={`/dashboard/${t.externalCode}`}
+               data-score={t.scoreTotal} data-days={days} data-region={t.normalizedRegion}
+               data-category={t.detectedIndustry} data-status={t.status}
+               data-compra-agil={t.externalCode.includes('-CO') ? 'true' : 'false'}>
+          <div class="tender-left">
+            <div class="tender-meta">
+              <span class={`status-badge ${t.status === 'Publicada' ? 'status-open' : 'status-closed'}`}>● {t.status}</span>
+              <span class="code-badge">{t.externalCode}</span>
+              <span class={`days-badge ${days <= 7 ? 'days-urgent' : 'days-ok'}`}>
+                {days > 0 ? `${days}d` : 'Cerrado'}
+              </span>
+            </div>
+            <div class="tender-title">{t.title}</div>
+            <div class="tender-buyer">
+              🏢 {t.buyerName}
+              <span class="buyer-location">
+                📍 {t.buyerCommune ? `${t.buyerCommune}, ` : ''}{t.buyerRegion}
+              </span>
+            </div>
+            <div class="budget-pill">💰 {formatBudget(t.budget, t.currency)}</div>
+            <div class="tender-ai" style="margin-top:12px">
+              <span class="tender-ai-icon">🤖 VC Elemental IA: </span>
+              {t.aiSummary}
+            </div>
+          </div>
+
+          <div class="score-panel">
+            <div class="score-header">
+              <div>
+                <div class="score-total-num" style={`color: ${color}`}>
+                  {scoreEmoji(t.scoreTotal)} {t.scoreTotal}
+                </div>
+                <div class="score-label-text">{t.scoreLabel}</div>
+              </div>
+              <div style="font-size:11px; color: var(--muted); text-align:right">
+                de 100 pts
+              </div>
+            </div>
+            {[
+              { name: '🏭 Rubro', val: t.scoreRubro, max: 40, label: t.rubroLabel },
+              { name: '📍 Región', val: t.scoreRegion, max: 30, label: t.regionLabel },
+              { name: '💰 Presupuesto', val: t.scoreBudget, max: 20, label: t.budgetLabel },
+              { name: '⏰ Urgencia', val: t.scoreUrgency, max: 10, label: t.urgencyLabel },
+            ].map(dim => (
+              <div class="score-dim">
+                <div class="score-dim-header">
+                  <span class="score-dim-name">{dim.name}</span>
+                  <span class="score-dim-val">{dim.val}/{dim.max}</span>
+                </div>
+                <div class="bar-track">
+                  <div class="bar-fill" style={`width:${(dim.val/dim.max)*100}%; background:${color}`}></div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </a>
+      );
+    })}
+  </div>
+
+  <script>
+    // Filter elements
+    const cards = document.querySelectorAll('.tender-card');
+    const searchInput = document.getElementById('search-input');
+    const regionSelect = document.getElementById('region-select');
+    const categorySelect = document.getElementById('category-select');
+    const statusSelect = document.getElementById('status-select') as HTMLSelectElement | null;
+    const filterScoreBtn = document.getElementById('filter-score');
+    
+    let activeFilterTab = 'all'; // 'all', 'recommended', 'closing'
+    let scoreFilterActive = false;
+
+    // Combined filtering function
+    function applyFilters() {
+      try {
+        const query = searchInput ? searchInput.value.toLowerCase().trim() : '';
+        const selectedRegion = regionSelect ? regionSelect.value : 'all';
+        const selectedCategory = categorySelect ? categorySelect.value : 'all';
+        const selectedStatus = statusSelect ? statusSelect.value : 'all';
+
+        console.log('[VC Elemental MP] Aplicando filtros:', {
+          query,
+          selectedRegion,
+          selectedCategory,
+          selectedStatus,
+          activeFilterTab,
+          scoreFilterActive,
+          totalCards: cards.length
+        });
+
+        cards.forEach(card => {
+          const score = parseInt(card.dataset.score || '0');
+          const days = parseInt(card.dataset.days || '0');
+          const region = card.dataset.region || 'OTHER';
+          const category = card.dataset.category || 'Otros';
+          const status = card.dataset.status || 'Publicada';
+          const isCompraAgil = card.dataset.compraAgil === 'true';
+          const text = card.innerText ? card.innerText.toLowerCase() : '';
+
+          // 1. Text Search Filter
+          const matchesQuery = !query || text.includes(query);
+
+          // 2. Region Filter
+          const matchesRegion = selectedRegion === 'all' || region === selectedRegion;
+
+          // 3. Category Filter
+          const matchesCategory = selectedCategory === 'all' || category === selectedCategory;
+
+          // 4. Status Filter
+          const matchesStatus = selectedStatus === 'all' || status === selectedStatus;
+
+          // 5. Score >= 70 Toggle Filter
+          const matchesScoreToggle = !scoreFilterActive || score >= 70;
+
+          // 6. Tab Filter
+          const matchesTab = activeFilterTab === 'all' 
+            ? true
+            : activeFilterTab === 'recommended' 
+              ? score >= 70
+              : activeFilterTab === 'closing' 
+                ? days <= 7
+                : activeFilterTab === 'compra-agil'
+                  ? isCompraAgil
+                  : true;
+
+          // Apply combined visibility
+          if (matchesQuery && matchesRegion && matchesCategory && matchesStatus && matchesScoreToggle && matchesTab) {
+            card.style.display = '';
+          } else {
+            card.style.display = 'none';
+          }
+        });
+      } catch (err) {
+        console.error('[VC Elemental MP Error] Fallo en applyFilters:', err);
+      }
+    }
+
+    // Event listeners
+    if (regionSelect) {
+      regionSelect.addEventListener('change', () => {
+        applyFilters();
+      });
+    }
+
+    if (categorySelect) {
+      categorySelect.addEventListener('change', () => {
+        applyFilters();
+      });
+    }
+
+    if (statusSelect) {
+      statusSelect.addEventListener('change', () => {
+        applyFilters();
+      });
+    }
+
+    // Search Input
+    if (searchInput) {
+      searchInput.addEventListener('input', applyFilters);
+    }
+
+    // Refresh Button manual sync integration
+    const refreshBtn = document.getElementById('btn-refresh');
+    const progressContainer = document.getElementById('sync-progress-container');
+    const progressBar = document.getElementById('sync-progress-bar');
+    const progressText = document.getElementById('sync-progress-text');
+
+    if (refreshBtn && progressContainer && progressBar && progressText) {
+      refreshBtn.addEventListener('click', async (e) => {
+        e.preventDefault();
+        
+        // Visual loading state
+        const originalHtml = refreshBtn.innerHTML;
+        refreshBtn.innerHTML = '⏳ Sincronizando...';
+        refreshBtn.disabled = true;
+        refreshBtn.style.opacity = '0.7';
+
+        progressContainer.style.display = 'block';
+        progressText.style.display = 'block';
+        progressBar.style.width = '0%';
+        progressBar.style.background = 'linear-gradient(90deg, var(--accent), var(--accent2))';
+        progressText.textContent = 'Iniciando conexión...';
+
+        try {
+          const res = await fetch('/api/sync', { method: 'POST' });
+          if (!res.ok) {
+            throw new Error('La llamada a la API falló');
+          }
+
+          const reader = res.body?.getReader();
+          if (!reader) {
+            throw new Error('No se pudo inicializar el lector de progreso');
+          }
+
+          const decoder = new TextDecoder();
+          let buffer = '';
+
+          while (true) {
+            const { value, done } = await reader.read();
+            if (done) break;
+
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split('\n');
+            buffer = lines.pop() || ''; // Guardar línea incompleta en el búfer
+
+            for (const line of lines) {
+              if (!line.trim()) continue;
+              const data = JSON.parse(line);
+
+              if (data.error) {
+                throw new Error(data.error);
+              }
+
+              if (data.percent !== undefined) {
+                progressBar.style.width = `${data.percent}%`;
+              }
+              if (data.message) {
+                progressText.textContent = data.message;
+              }
+            }
+          }
+
+          // Completado con éxito
+          progressText.textContent = '¡Completado! Recargando...';
+          progressBar.style.width = '100%';
+          setTimeout(() => {
+            window.location.reload();
+          }, 600);
+
+        } catch (err: any) {
+          console.error('[Sync Error]:', err);
+          progressText.textContent = `❌ Error: ${err.message || 'Fallo de red'}`;
+          progressBar.style.background = 'var(--red)';
+          progressBar.style.width = '100%';
+
+          setTimeout(() => {
+            refreshBtn.innerHTML = originalHtml;
+            refreshBtn.disabled = false;
+            refreshBtn.style.opacity = '1';
+            progressContainer.style.display = 'none';
+            progressText.style.display = 'none';
+          }, 4000);
+        }
+      });
+    }
+
+    if (filterScoreBtn) {
+      filterScoreBtn.addEventListener('click', () => {
+        scoreFilterActive = !scoreFilterActive;
+        filterScoreBtn.style.opacity = scoreFilterActive ? '1' : '0.6';
+        applyFilters();
+      });
+    }
+
+    document.querySelectorAll('[data-filter]').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.preventDefault();
+        document.querySelectorAll('[data-filter]').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        activeFilterTab = btn.dataset.filter || 'all';
+        applyFilters();
+      });
+    });
+
+    // Initial run
+    applyFilters();
+  </script>
+</DashboardLayout>

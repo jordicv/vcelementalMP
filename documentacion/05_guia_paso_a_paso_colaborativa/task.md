@@ -1,0 +1,7 @@
+- [x] Query company users in `[id].astro`
+- [x] Implement `generatePasoAPaso` dynamic function in `[id].astro`
+- [x] Update UI templates in `[id].astro` (Phases, assignees, states, notes, activity log)
+- [x] Write CSS styling for new features (assignee inputs, status selects, collapsible phases, log panel)
+- [x] Implement client-side JavaScript for tracking, log generation, and canvas confetti celebration
+- [x] Run `npx astro check` to verify TypeScript types
+- [x] Run `npm run build` to verify production compilation

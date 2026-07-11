@@ -1,0 +1,205 @@
+---
+import DashboardLayout from '../../layouts/DashboardLayout.astro';
+
+// Datos de consumo de cuotas mock
+const mockBilling = {
+  plan: 'Growth',
+  price: '$30 USD/mes',
+  renewalDate: '24 de Julio, 2026',
+  tendersCount: 142,
+  tendersLimit: 500,
+  alertsCount: 3,
+  alertsLimit: 10,
+};
+---
+<DashboardLayout title="Facturación" activeTab="facturacion">
+  <style>
+    .content { padding: 32px; display: grid; grid-template-columns: 2fr 1fr; gap: 24px; }
+    .card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 16px; padding: 24px;
+    }
+    .card-title { font-size: 18px; font-weight: 700; margin-bottom: 8px; }
+    .card-desc { font-size: 13px; color: var(--muted); margin-bottom: 24px; }
+
+    /* Plan details */
+    .current-plan-card {
+      background: linear-gradient(135deg, rgba(59,130,246,0.15), rgba(139,92,246,0.15));
+      border: 1px solid rgba(59,130,246,0.3); border-radius: 16px; padding: 24px;
+      display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px;
+    }
+    .plan-info h3 { font-size: 24px; font-weight: 900; }
+    .plan-info p { font-size: 13px; color: var(--muted2); margin-top: 4px; }
+    .plan-price { font-size: 28px; font-weight: 900; text-align: right; }
+
+    /* Usage metrics */
+    .usage-metrics { display: flex; flex-direction: column; gap: 16px; margin-bottom: 24px; }
+    .usage-item {}
+    .usage-label-row { display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 6px; }
+    .usage-title { font-weight: 600; }
+    .usage-qty { color: var(--muted2); }
+    .progress-bar { height: 8px; background: var(--border); border-radius: 4px; }
+    .progress-fill { height: 8px; background: var(--accent); border-radius: 4px; }
+
+    /* Invoices list */
+    .invoices-table { width: 100%; border-collapse: collapse; margin-top: 12px; }
+    .invoices-table th, .invoices-table td { padding: 12px; text-align: left; font-size: 13px; }
+    .invoices-table th { border-bottom: 1px solid var(--border); color: var(--muted); text-transform: uppercase; font-size: 11px; letter-spacing: 0.5px; }
+    .invoices-table td { border-bottom: 1px solid var(--border); }
+    .invoices-table tr:last-child td { border-bottom: none; }
+    
+    .status-paid { color: var(--green); font-weight: 600; }
+
+    /* Premium Toast */
+    .toast {
+      position: fixed; top: 24px; right: 24px;
+      background: rgba(59, 130, 246, 0.1);
+      border: 1px solid rgba(59, 130, 246, 0.2);
+      color: var(--accent);
+      padding: 16px 24px; border-radius: 12px;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+      backdrop-filter: blur(12px);
+      z-index: 1000;
+      display: flex; align-items: center; gap: 10px;
+      transform: translateY(-20px); opacity: 0;
+      pointer-events: none;
+      transition: all 0.3s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+      font-size: 14px; font-weight: 600;
+    }
+    .toast.show {
+      transform: translateY(0); opacity: 1;
+    }
+  </style>
+
+  <div class="topbar">
+    <div class="topbar-left">
+      <h1>💳 Facturación y Planes</h1>
+      <p>Administra tu plan de suscripción, cuotas de consumo e historial de pagos</p>
+    </div>
+  </div>
+
+  <div class="content">
+    <!-- Success Toast -->
+    <div id="success-toast" class="toast">
+      <span>💳</span>
+      <span id="toast-text">Cargando portal seguro...</span>
+    </div>
+
+    <div style="display: flex; flex-direction: column; gap: 24px;">
+      <!-- Active plan display -->
+      <div class="current-plan-card">
+        <div class="plan-info">
+          <p style="text-transform: uppercase; font-size: 11px; font-weight: 700; color: var(--accent); letter-spacing: 1px; margin-bottom: 2px;">Plan Actual</p>
+          <h3>Plan {mockBilling.plan}</h3>
+          <p>Próxima renovación automática el {mockBilling.renewalDate}</p>
+        </div>
+        <div>
+          <div class="plan-price">{mockBilling.price}</div>
+          <button class="btn-sm btn-outline" id="btn-portal" style="margin-top: 8px;">Portal de Pagos Stripe →</button>
+        </div>
+      </div>
+
+      <!-- Plan usage/metrics -->
+      <div class="card">
+        <div class="card-title">Cuotas y Consumo Mensual</div>
+        <div class="card-desc">Límites operacionales de tu plan de suscripción actual</div>
+
+        <div class="usage-metrics">
+          <div class="usage-item">
+            <div class="usage-label-row">
+              <span class="usage-title">Licitaciones monitoreadas en radar</span>
+              <span class="usage-qty">{mockBilling.tendersCount} de {mockBilling.tendersLimit} / mes</span>
+            </div>
+            <div class="progress-bar">
+              <div class="progress-fill" style={`width: ${(mockBilling.tendersCount / mockBilling.tendersLimit) * 100}%`}></div>
+            </div>
+          </div>
+
+          <div class="usage-item">
+            <div class="usage-label-row">
+              <span class="usage-title">Alertas activas configuradas</span>
+              <span class="usage-qty">{mockBilling.alertsCount} de {mockBilling.alertsLimit} creadas</span>
+            </div>
+            <div class="progress-bar">
+              <div class="progress-fill" style={`width: ${(mockBilling.alertsCount / mockBilling.alertsLimit) * 100}%; background: var(--green)`}></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Invoices -->
+      <div class="card">
+        <div class="card-title">Historial de Facturas</div>
+        <div class="card-desc">Tus últimos pagos facturados</div>
+
+        <table class="invoices-table">
+          <thead>
+            <tr>
+              <th>Fecha</th>
+              <th>Número</th>
+              <th>Descripción</th>
+              <th>Monto</th>
+              <th>Estado</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>24 Jun, 2026</td>
+              <td style="font-family: monospace;">INV-00142</td>
+              <td>Suscripción VC Elemental MP — Plan Growth</td>
+              <td>$30.00 USD</td>
+              <td><span class="status-paid">Pagado</span></td>
+            </tr>
+            <tr>
+              <td>24 May, 2026</td>
+              <td style="font-family: monospace;">INV-00109</td>
+              <td>Suscripción VC Elemental MP — Plan Growth</td>
+              <td>$30.00 USD</td>
+              <td><span class="status-paid">Pagado</span></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Upgrade banner -->
+    <div class="card" style="height: fit-content; background: var(--surface2)">
+      <div class="card-title" style="font-size:16px">¿Necesitas más límites?</div>
+      <div class="card-desc" style="margin-bottom:16px">Sube de plan para monitorear licitaciones ilimitadas y alertas infinitas.</div>
+      
+      <div style="border-top: 1px solid var(--border); padding-top: 16px;">
+        <div style="font-size:15px; font-weight:700; margin-bottom: 4px;">Plan Enterprise</div>
+        <div style="font-size:12px; color: var(--muted); margin-bottom:12px">Licitaciones ilimitadas, reportes de IA extendidos y soporte 24/7.</div>
+        <button class="btn-sm btn-primary" id="btn-upgrade-enterprise" style="width: 100%">Contactar a Ventas</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const portalBtn = document.getElementById('btn-portal');
+    const enterpriseBtn = document.getElementById('btn-upgrade-enterprise');
+    const toast = document.getElementById('success-toast');
+    const toastText = document.getElementById('toast-text');
+
+    function showToast(text: string, icon: string) {
+      if (toast && toastText) {
+        toastText.innerText = text;
+        toast.querySelector('span:first-child').innerText = icon;
+        toast.classList.add('show');
+        setTimeout(() => toast.classList.remove('show'), 3500);
+      }
+    }
+
+    if (portalBtn) {
+      portalBtn.addEventListener('click', () => {
+        showToast('Redirigiendo de forma segura al Portal de Stripe (modo test)...', '💳');
+      });
+    }
+
+    if (enterpriseBtn) {
+      enterpriseBtn.addEventListener('click', () => {
+        showToast('¡Solicitud enviada! Un ejecutivo comercial te contactará.', '✉️');
+      });
+    }
+  </script>
+</DashboardLayout>

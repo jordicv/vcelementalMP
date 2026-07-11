@@ -1,0 +1,283 @@
+---
+import DashboardLayout from '../../layouts/DashboardLayout.astro';
+import { db, companies, users, alerts } from '../../db/index';
+import { eq } from 'drizzle-orm';
+
+// Cargar la empresa y el usuario de prueba
+const company = (await db.select().from(companies).limit(1))[0];
+const user = company ? (await db.select().from(users).where(eq(users.companyId, company.id)).limit(1))[0] : null;
+
+// Cargar la configuración de alertas activa
+let activeAlerts = [];
+if (user) {
+  activeAlerts = await db.select().from(alerts).where(eq(alerts.userId, user.id));
+}
+
+const emailAlert = activeAlerts.find(a => a.channel === 'email');
+const whatsappAlert = activeAlerts.find(a => a.channel === 'whatsapp');
+
+const emailChecked = emailAlert ? emailAlert.isActive : true;
+const whatsappChecked = whatsappAlert ? whatsappAlert.isActive : false;
+
+// Obtener filtros con valores de fallback si está vacío
+const savedFilters = (emailAlert?.filters || whatsappAlert?.filters || {}) as any;
+const minScore = savedFilters.minScore ?? 70;
+const keywords = savedFilters.keywords ?? ['web', 'software', 'sistema'];
+const exclude = savedFilters.exclude ?? ['licencia'];
+---
+<DashboardLayout title="Alertas" activeTab="alertas">
+  <style>
+    .content { padding: 32px; max-width: 800px; }
+    .card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 16px; padding: 24px; margin-bottom: 24px;
+    }
+    .card-title { font-size: 18px; font-weight: 700; margin-bottom: 8px; }
+    .card-desc { font-size: 13px; color: var(--muted); margin-bottom: 20px; }
+    
+    .form-group { margin-bottom: 20px; }
+    .form-group:last-child { margin-bottom: 0; }
+    label { display: block; font-size: 14px; font-weight: 600; margin-bottom: 8px; color: var(--text); }
+    
+    .toggle-row { display: flex; justify-content: space-between; align-items: center; padding: 12px 0; border-bottom: 1px solid var(--border); }
+    .toggle-row:last-of-type { border-bottom: none; }
+    .toggle-info { flex: 1; }
+    .toggle-title { font-size: 14px; font-weight: 600; }
+    .toggle-desc { font-size: 12px; color: var(--muted); }
+    
+    /* Toggle switch styling */
+    .switch {
+      position: relative; display: inline-block; width: 44px; height: 24px;
+    }
+    .switch input { opacity: 0; width: 0; height: 0; }
+    .slider {
+      position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0;
+      background-color: var(--border); transition: .3s; border-radius: 24px;
+    }
+    .slider:before {
+      position: absolute; content: ""; height: 18px; width: 18px; left: 3px; bottom: 3px;
+      background-color: white; transition: .3s; border-radius: 50%;
+    }
+    input:checked + .slider { background-color: var(--accent); }
+    input:checked + .slider:before { transform: translateX(20px); }
+
+    .input-number {
+      background: var(--surface2); border: 1px solid var(--border); border-radius: 8px;
+      color: var(--text); padding: 8px 12px; font-size: 14px; width: 100px; outline: none;
+    }
+    .input-text {
+      background: var(--surface2); border: 1px solid var(--border); border-radius: 8px;
+      color: var(--text); padding: 8px 12px; font-size: 14px; width: 100%; outline: none;
+    }
+    .input-text:focus, .input-number:focus { border-color: var(--accent); }
+
+    .tag-container {
+      display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px;
+    }
+    .tag {
+      background: rgba(59,130,246,0.1); border: 1px solid rgba(59,130,246,0.2);
+      color: var(--accent); padding: 4px 10px; border-radius: 50px; font-size: 12px;
+      display: flex; align-items: center; gap: 6px;
+    }
+    .tag-close { cursor: pointer; font-weight: bold; }
+
+    /* Modern Premium Toast Notification */
+    .toast {
+      position: fixed; top: 24px; right: 24px;
+      background: rgba(16, 185, 129, 0.1);
+      border: 1px solid rgba(16, 185, 129, 0.2);
+      color: #10b981;
+      padding: 16px 24px; border-radius: 12px;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+      backdrop-filter: blur(12px);
+      z-index: 1000;
+      display: flex; align-items: center; gap: 10px;
+      transform: translateY(-20px); opacity: 0;
+      pointer-events: none;
+      transition: all 0.3s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+      font-size: 14px; font-weight: 600;
+    }
+    .toast.show {
+      transform: translateY(0); opacity: 1;
+    }
+  </style>
+
+  <div class="topbar">
+    <div class="topbar-left">
+      <h1>🔔 Configuración de Alertas</h1>
+      <p>Decide cómo y cuándo recibir notificaciones sobre nuevas licitaciones</p>
+    </div>
+  </div>
+
+  <div class="content">
+    <!-- Toast box -->
+    <div id="success-toast" class="toast">
+      <span>✅</span>
+      <span>¡Configuración de alertas guardada con éxito en la base de datos!</span>
+    </div>
+
+    <!-- Channels -->
+    <div class="card">
+      <div class="card-title">Canales de Notificación</div>
+      <div class="card-desc">Configura los medios por los cuales quieres recibir alertas</div>
+
+      <div class="toggle-row">
+        <div class="toggle-info">
+          <div class="toggle-title">Correo Electrónico</div>
+          <div class="toggle-desc">Recibe un reporte estructurado y completo en tu email.</div>
+        </div>
+        <label class="switch">
+          <input type="checkbox" id="alert-email-toggle" checked={emailChecked} />
+          <span class="slider"></span>
+        </label>
+      </div>
+
+      <div class="toggle-row">
+        <div class="toggle-info">
+          <div class="toggle-title">WhatsApp</div>
+          <div class="toggle-desc">Notificaciones instantáneas directamente a tu teléfono celular.</div>
+        </div>
+        <label class="switch">
+          <input type="checkbox" id="alert-whatsapp-toggle" checked={whatsappChecked} />
+          <span class="slider"></span>
+        </label>
+      </div>
+    </div>
+
+    <!-- Filters configuration -->
+    <div class="card">
+      <div class="card-title">Filtros de Alerta</div>
+      <div class="card-desc">Solo te notificaremos las licitaciones que superen estos criterios</div>
+
+      <div class="form-group">
+        <label for="score-threshold">Score Mínimo de Recomendación (0 - 100)</label>
+        <div style="display:flex; align-items:center; gap:12px">
+          <input type="number" id="score-threshold" class="input-number" value={minScore} min="0" max="100" />
+          <span style="font-size:13px; color: var(--muted)">Solo te alertaremos licitaciones con score igual o superior a este valor.</span>
+        </div>
+      </div>
+
+      <div class="form-group" style="margin-top: 24px;">
+        <label for="keywords-input">Palabras Clave Requeridas</label>
+        <div style="display:flex; gap:8px">
+          <input type="text" id="keywords-input" class="input-text" placeholder="Ej: desarrollo web, software, mantencion..." />
+          <button class="btn-sm btn-primary" id="btn-add-keyword" style="white-space:nowrap">Agregar</button>
+        </div>
+        <div class="tag-container" id="keyword-tags">
+          {keywords.map((kw: string) => (
+            <div class="tag"><span>{kw}</span><span class="tag-close">×</span></div>
+          ))}
+        </div>
+      </div>
+
+      <div class="form-group" style="margin-top: 24px;">
+        <label for="excluded-input">Filtro Antirruido (Palabras Clave Excluidas)</label>
+        <div style="display:flex; gap:8px">
+          <input type="text" id="excluded-input" class="input-text" placeholder="Ej: capacitacion, licencia, aseo..." />
+          <button class="btn-sm btn-outline" id="btn-add-exclude" style="white-space:nowrap">Excluir</button>
+        </div>
+        <div class="tag-container" id="exclude-tags">
+          {exclude.map((ex: string) => (
+            <div class="tag" style="background: rgba(239,68,68,0.1); border-color: rgba(239,68,68,0.2); color: var(--red);">
+              <span>{ex}</span><span class="tag-close">×</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+
+    <div style="text-align: right;">
+      <button class="btn-sm btn-primary" id="btn-save-alerts" style="padding: 12px 28px; font-size:14px">Guardar Configuración</button>
+    </div>
+  </div>
+
+  <script>
+    // Tag management logic
+    const setupTags = (inputId, containerId, isExclude = false) => {
+      const input = document.getElementById(inputId);
+      const container = document.getElementById(containerId);
+      const btn = document.getElementById(isExclude ? 'btn-add-exclude' : 'btn-add-keyword');
+
+      const addTag = () => {
+        const val = input.value.trim().toLowerCase();
+        if (!val) return;
+        
+        // Evitar duplicados
+        const existing = Array.from(container.querySelectorAll('span:first-child')).map(s => s.innerText);
+        if (existing.includes(val)) return;
+
+        const tag = document.createElement('div');
+        tag.className = 'tag';
+        if (isExclude) {
+          tag.style.background = 'rgba(239,68,68,0.1)';
+          tag.style.borderColor = 'rgba(239,68,68,0.2)';
+          tag.style.color = 'var(--red)';
+        }
+        tag.innerHTML = `<span>${val}</span><span class="tag-close">×</span>`;
+        tag.querySelector('.tag-close').addEventListener('click', () => tag.remove());
+        
+        container.appendChild(tag);
+        input.value = '';
+      };
+
+      if (btn) btn.addEventListener('click', addTag);
+      if (input) {
+        input.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter') addTag();
+        });
+      }
+
+      // Configurar eliminación en tags iniciales
+      container.querySelectorAll('.tag-close').forEach(closeBtn => {
+        closeBtn.addEventListener('click', () => closeBtn.parentElement.remove());
+      });
+    };
+
+    setupTags('keywords-input', 'keyword-tags');
+    setupTags('excluded-input', 'exclude-tags', true);
+
+    // Save alert logic via fetch POST API and custom toast
+    const saveBtn = document.getElementById('btn-save-alerts');
+    const toast = document.getElementById('success-toast');
+
+    if (saveBtn) {
+      saveBtn.addEventListener('click', async () => {
+        const emailActive = document.getElementById('alert-email-toggle').checked;
+        const whatsappActive = document.getElementById('alert-whatsapp-toggle').checked;
+        const scoreThreshold = document.getElementById('score-threshold').value;
+
+        // Collect tags
+        const keywords = Array.from(document.querySelectorAll('#keyword-tags .tag span:first-child')).map(s => s.innerText);
+        const exclude = Array.from(document.querySelectorAll('#exclude-tags .tag span:first-child')).map(s => s.innerText);
+
+        try {
+          const res = await fetch('/api/alerts', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              emailActive,
+              whatsappActive,
+              scoreThreshold,
+              keywords,
+              exclude
+            })
+          });
+
+          if (res.ok) {
+            // Show custom premium toast instead of native alert()
+            if (toast) {
+              toast.classList.add('show');
+              setTimeout(() => {
+                toast.classList.remove('show');
+              }, 3000);
+            }
+          } else {
+            console.error('[Alerts Save Error] Server returned non-ok status');
+          }
+        } catch (err) {
+          console.error('[Alerts Save Error] Network failure:', err);
+        }
+      });
+    }
+  </script>
+</DashboardLayout>

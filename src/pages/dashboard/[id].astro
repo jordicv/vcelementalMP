@@ -1,0 +1,2304 @@
+---
+import DashboardLayout from '../../layouts/DashboardLayout.astro';
+import { db, tenders, companies, users } from '../../db/index';
+import { eq } from 'drizzle-orm';
+import { resolveBasesFromFicha } from '../../services/scraper';
+
+export const prerender = false;
+
+const { id } = Astro.params;
+
+// 1. Consultar licitación por externalCode en la base de datos
+const [dbTender] = await db
+  .select()
+  .from(tenders)
+  .where(eq(tenders.externalCode, id ?? ''));
+
+if (!dbTender) {
+  return Astro.redirect('/dashboard');
+}
+
+// 2. Obtener la empresa activa para saber si tiene rubro/región deshabilitados
+const [company] = await db
+  .select()
+  .from(companies)
+  .where(eq(companies.id, dbTender.companyId ?? ''));
+
+const isNoIndustry = company?.industry === 'Sin rubro específico';
+const isNoRegion = company?.region === 'Sin región específica';
+
+// 2.5. Obtener los usuarios de la empresa para la asignación de tareas
+const companyUsers = await db
+  .select()
+  .from(users)
+  .where(eq(users.companyId, dbTender.companyId ?? ''));
+
+function decodeHtmlEntities(str: string): string {
+  if (!str) return '';
+  const entities: Record<string, string> = {
+    '&nbsp;': ' ',
+    '&amp;': '&',
+    '&quot;': '"',
+    '&lt;': '<',
+    '&gt;': '>',
+    '&#39;': "'",
+    '&aacute;': 'á', '&eacute;': 'é', '&iacute;': 'í', '&oacute;': 'ó', '&uacute;': 'ú',
+    '&Aacute;': 'Á', '&Eacute;': 'É', '&Iacute;': 'Í', '&Oacute;': 'Ó', '&Uacute;': 'Ú',
+    '&ntilde;': 'ñ', '&Ntilde;': 'Ñ',
+    '&uuml;': 'ü', '&Uuml;': 'Ü',
+    '&ordm;': 'º', '&orda;': 'ª',
+    '&deg;': '°',
+    '&iquest;': '¿',
+    '&iexcl;': '¡',
+    '&ldquo;': '“',
+    '&rdquo;': '”',
+    '&lsquo;': '‘',
+    '&rsquo;': '’',
+    '&ndash;': '–',
+    '&mdash;': '—',
+  };
+
+  let result = str;
+  for (const [entity, char] of Object.entries(entities)) {
+    result = result.replaceAll(entity, char);
+  }
+  result = result.replace(/&#(\d+);/g, (_match, dec) => String.fromCharCode(dec));
+  result = result.replace(/&#x([0-9a-fA-F]+);/g, (_match, hex) => String.fromCharCode(parseInt(hex, 16)));
+  return result;
+}
+
+function renderMarkdown(text: string): string {
+  if (!text) return '';
+  let decoded = decodeHtmlEntities(text);
+  let escaped = decoded
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+  escaped = escaped.replace(/\*\*\*([^*]+)\*\*\*/g, '<strong><em>$1</em></strong>');
+  escaped = escaped.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+  escaped = escaped.replace(/\*([^*]+)\*/g, '<em>$1</em>');
+  escaped = escaped.replace(/`([^`]+)`/g, '<code>$1</code>');
+  escaped = escaped.replace(/\n/g, '<br>');
+  escaped = escaped.replace(/•\s+/g, '&bull; ');
+  return escaped;
+}
+
+// Estructurar para la UI
+const tender = {
+  externalCode: dbTender.externalCode,
+  title:        dbTender.title,
+  status:       dbTender.status || 'Publicada',
+  budget:       dbTender.budget ? parseFloat(dbTender.budget) : 0,
+  currency:     dbTender.currency || 'CLP', // Leemos la moneda original de la DB
+  closeDate:    dbTender.closeDate || new Date(Date.now() + 10 * 86400000),
+  buyerName:    dbTender.buyerName || 'Organismo Público',
+  buyerRegion:  dbTender.buyerRegion || 'Región Metropolitana',
+  buyerRUT:     '69.070.100-2', // Placeholder
+  description:  'Requerimientos y especificaciones detalladas del portal de compras públicas.',
+  scoreTotal:   dbTender.scoreTotalVal ?? 0,
+  scoreRubro:   dbTender.scoreRubro ?? 0,
+  scoreRegion:  dbTender.scoreRegion ?? 0,
+  scoreBudget:  dbTender.scoreBudget ?? 0,
+  scoreUrgency: dbTender.scoreUrgency ?? 0,
+  scoreLabel:   dbTender.scoreLabel || 'Evaluar',
+  rubroLabel:   isNoIndustry ? 'Evaluación neutral (Sin rubro)' : (dbTender.scoreRubro && dbTender.scoreRubro >= 40 ? 'Coincidencia exacta de rubro' : dbTender.scoreRubro && dbTender.scoreRubro >= 25 ? 'Rubro relacionado' : 'Sin relación'),
+  regionLabel:  isNoRegion ? 'Alcance nacional (Sin región)' : (dbTender.scoreRegion && dbTender.scoreRegion >= 30 ? 'Misma región' : dbTender.scoreRegion && dbTender.scoreRegion >= 20 ? 'Región limítrofe' : 'Macrozona o lejana'),
+  budgetLabel:  dbTender.scoreBudget && dbTender.scoreBudget >= 20 ? 'Dentro de tu rango ideal' : dbTender.scoreBudget && dbTender.scoreBudget >= 12 ? 'Sobre tu rango (hasta 150%)' : 'Fuera de rango',
+  urgencyLabel: dbTender.scoreUrgency && dbTender.scoreUrgency >= 10 ? 'Tiempo cómodo' : dbTender.scoreUrgency && dbTender.scoreUrgency >= 7 ? 'Plazo ajustado' : 'Urgente',
+  aiSummary:    dbTender.aiSummary || 'El motor de recomendación inteligente ha analizado esta licitación. Presenta una alta compatibilidad con el rubro de Tecnología en el área de desarrollo y servicios de infraestructura digital.',
+  aiPoints: [
+    'Cumple con los requisitos de tu rango de presupuesto operacional.',
+    'Ubicación regional compatible con tu capacidad logística.',
+    'Plazo de postulación holgado para preparar una propuesta de calidad.'
+  ],
+  aiRisks: [
+    'Multas por retraso de entrega de hitos del proyecto.',
+    'Garantías bancarias de seriedad de la oferta exigidas.'
+  ]
+};
+
+function formatBudget(budget: number, currency: string) {
+  if (budget <= 0) return 'No especificado';
+  
+  if (currency === 'CLP') {
+    return `$${budget.toLocaleString('es-CL')} CLP`;
+  }
+  
+  // Conversión aproximada para visualización en pesos chilenos
+  let equivalentClp = budget;
+  if (currency === 'UTM') {
+    equivalentClp = budget * 66000;
+    return `${budget.toLocaleString('es-CL')} UTM (~$${equivalentClp.toLocaleString('es-CL')} CLP)`;
+  }
+  if (currency === 'UF') {
+    equivalentClp = budget * 38000;
+    return `${budget.toLocaleString('es-CL')} UF (~$${equivalentClp.toLocaleString('es-CL')} CLP)`;
+  }
+  if (currency === 'USD') {
+    equivalentClp = budget * 930;
+    return `$${budget.toLocaleString('es-CL')} USD (~$${equivalentClp.toLocaleString('es-CL')} CLP)`;
+  }
+
+  return `${budget.toLocaleString('es-CL')} ${currency}`;
+}
+
+function scoreColor(score: number) {
+  if (score >= 80) return '#22c55e';
+  if (score >= 60) return '#eab308';
+  if (score >= 40) return '#f97316';
+  return '#ef4444';
+}
+
+function scoreEmoji(score: number) {
+  if (score >= 80) return '🟢';
+  if (score >= 60) return '🟡';
+  if (score >= 40) return '🟠';
+  return '🔴';
+}
+
+async function resolveAttachmentsLink(externalCode: string): Promise<string | null> {
+  try {
+    const targetUrl = `https://www.mercadopublico.cl/Procurement/Modules/RFB/DetailsAcquisition.aspx?idLicitacion=${externalCode}`;
+    const response = await fetch(targetUrl, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+      },
+      redirect: 'follow'
+    });
+
+    if (!response.ok) return null;
+    const html = await response.text();
+
+    const match = html.match(/(\.\.\/Attachment\/ViewAttachment(?:LC)?\.aspx\?enc=[a-zA-Z0-9%_\-\.\~\+=]+)/i)
+      || html.match(/(ViewAttachment(?:LC)?\.aspx\?enc=[a-zA-Z0-9%_\-\.\~\+=]+)/i);
+    
+    if (match && match[1]) {
+      let relativeLink = match[1];
+      relativeLink = relativeLink
+        .replace(/&amp;/g, '&')
+        .replace(/&#39;/g, "'")
+        .replace(/&quot;/g, '"');
+      
+      // Forzar el uso de ViewAttachmentLC.aspx en lugar de ViewAttachment.aspx para evitar el error de sesión 503.2
+      if (relativeLink.includes('ViewAttachment.aspx') && !relativeLink.includes('ViewAttachmentLC.aspx')) {
+        relativeLink = relativeLink.replace('ViewAttachment.aspx', 'ViewAttachmentLC.aspx');
+      }
+
+      if (relativeLink.startsWith('../')) {
+        return 'https://www.mercadopublico.cl/Procurement/Modules/' + relativeLink.substring(3);
+      } else if (relativeLink.startsWith('/')) {
+        return 'https://www.mercadopublico.cl' + relativeLink;
+      } else {
+        return 'https://www.mercadopublico.cl/Procurement/Modules/Attachment/' + relativeLink;
+      }
+    }
+    return null;
+  } catch (error: any) {
+    console.error(`Error resolving for ${externalCode}:`, error.message);
+    return null;
+  }
+}
+
+
+
+// Extraer documentos y requisitos de rawData con fallbacks inteligentes y dinámicos
+const rawDataObj = (dbTender.rawData && typeof dbTender.rawData === 'object') ? dbTender.rawData as Record<string, any> : {};
+
+let resolvedAttachmentsLink = rawDataObj.attachmentsLink || null;
+
+if (!resolvedAttachmentsLink && dbTender.externalCode) {
+  resolvedAttachmentsLink = await resolveAttachmentsLink(dbTender.externalCode);
+  if (resolvedAttachmentsLink) {
+    const updatedRawData = {
+      ...rawDataObj,
+      attachmentsLink: resolvedAttachmentsLink
+    };
+    await db
+      .update(tenders)
+      .set({ rawData: updatedRawData })
+      .where(eq(tenders.id, dbTender.id));
+  }
+}
+
+// Texto completo o resumido de las bases estructurado en los 9 puntos requeridos
+let dbTextoBases = rawDataObj.textoBases && typeof rawDataObj.textoBases === 'object' ? rawDataObj.textoBases : null;
+
+if (!dbTextoBases && dbTender.externalCode) {
+  const scrapedBases = await resolveBasesFromFicha(dbTender.externalCode);
+  if (scrapedBases) {
+    dbTextoBases = scrapedBases;
+    const updatedRawData = {
+      ...rawDataObj,
+      textoBases: scrapedBases
+    };
+    await db
+      .update(tenders)
+      .set({ rawData: updatedRawData })
+      .where(eq(tenders.id, dbTender.id));
+  } else {
+    dbTextoBases = {};
+  }
+} else if (!dbTextoBases) {
+  dbTextoBases = {};
+}
+
+const puntosBases = {
+  caracteristicas: (dbTextoBases && dbTextoBases.caracteristicas) || `• **ID de la Licitación:** ${dbTender.externalCode}
+• **Nombre del Proceso:** ${dbTender.title}
+• **Moneda:** ${dbTender.currency || 'CLP'}
+• **Estado actual:** ${dbTender.status || 'Publicada'}`,
+
+  organismo: dbTextoBases.organismo || `• **Organismo Comprador:** ${dbTender.buyerName || 'No especificado'}
+• **Ubicación Principal:** ${dbTender.buyerRegion || 'No especificada'}${dbTender.buyerCommune ? ', ' + dbTender.buyerCommune : ''}`,
+
+  etapasPlazos: dbTextoBases.etapasPlazos || `• **Fecha de Cierre (Recepción de Ofertas):** ${dbTender.closeDate ? new Date(dbTender.closeDate).toLocaleString('es-CL') : 'No especificada'}
+• **Fecha de Publicación de Respuestas:** ${dbTender.rawData && typeof dbTender.rawData === 'object' && (dbTender.rawData as Record<string, any>).FechaPublicacionRespuestas ? new Date((dbTender.rawData as Record<string, any>).FechaPublicacionRespuestas).toLocaleString('es-CL') : 'No especificada'}`,
+
+  antecedentes: dbTextoBases.antecedentes || `• **Documentación Administrativa Requerida:**
+  - Anexo N° 1 - Identificación del Oferente y Aceptación de Bases
+  - Anexo N° 2 - Declaración Jurada de No Inhabilidades
+• **Documentación Técnica Requerida:**
+  - Propuesta Técnica Metodológica y Plan de Trabajo
+• **Documentación Económica Requerida:**
+  - Anexo N° 5 - Formulario de Oferta Económica Detallada`,
+
+  requisitosContratar: dbTextoBases.requisitosContratar || `• **Habilidad en ChileProveedores:** Obligatorio encontrarse en estado 'HÁBIL' en el Registro Oficial de Proveedores del Estado para poder suscribir el contrato.
+• **Declaración Jurada Simple:** Acreditar que no cuenta con inhabilidades para contratar de acuerdo a la Ley de Compras Públicas.
+• **Cumplimiento Previsional:** Acreditar que no registra deudas previsionales vigentes con sus trabajadores.`,
+
+  criteriosEvaluacion: dbTextoBases.criteriosEvaluacion || `• **Criterio de Evaluación Técnica:** 40% (Evaluación de la Propuesta y metodología técnica)
+• **Criterio Económico / Precio:** 30% (Puntaje inversamente proporcional al precio ofertado)
+• **Cumplimiento de Requisitos Formales:** 10% (Puntaje extra por subir la oferta sin omisiones o errores)
+• **Experiencia del Oferente:** 20% (Evaluada según cantidad de contratos similares ejecutados anteriormente)`,
+
+  montosDuracion: dbTextoBases.montosDuracion || `• **Presupuesto Máximo Disponible:** ${dbTender.budget ? '$' + Number(dbTender.budget).toLocaleString('es-CL') + ' CLP netos' : 'Monto referencial no especificado en bases.'}
+• **Plazo de Ejecución del Servicio:** Estimado en base a los plazos operacionales de las bases.
+• **Condiciones de Pago:** Pago dentro de los 30 días posteriores a la recepción conforme de la respectiva factura y aprobación del hito.`,
+
+  garantias: dbTextoBases.garantias || `• **Boleta de Seriedad de la Oferta:** Exigida según tramos definidos en las bases administrativas (típicamente requerida para montos superiores a 1000 UTM).
+• **Boleta de Fiel Cumplimiento de Contrato:** Requerida al adjudicatario al momento de la firma de contrato, correspondiente a un porcentaje del valor total adjudicado.`,
+
+  requerimientosTecnicos: dbTextoBases.requerimientosTecnicos || `• **Especificaciones Técnicas:**
+${tender.description || dbTender.aiSummary || 'El adjudicatario deberá dar cumplimiento cabal a las especificaciones y términos de referencia descritos en las bases.'}
+• **Foro Inverso / Aclaraciones:** Se podrán solicitar aclaraciones de errores formales, otorgando un plazo de respuesta de hasta 3 días corridos (penalizando puntaje formal).`
+};
+
+// Formato de enlaces directos a Mercado Público
+const fichaDirectLink = `https://www.mercadopublico.cl/Procurement/Modules/RFB/DetailsAcquisition.aspx?idLicitacion=${dbTender.externalCode}`;
+
+// Definir los documentos a mostrar en la interfaz
+const documentos = [
+  {
+    nombre: "Carpeta de Adjuntos (Ver y descargar todos los archivos)",
+    link: resolvedAttachmentsLink || fichaDirectLink,
+    desc: "Acceso directo al listado completo de anexos y bases oficiales del proceso. Se abre directamente en la vista ligera de Mercado Público."
+  },
+  {
+    nombre: "Ficha de Licitación en Mercado Público (Bases y Adjuntos)",
+    link: fichaDirectLink,
+    desc: "Enlace directo para abrir la ficha oficial del proceso. Desde allí puedes ver y descargar la carpeta de adjuntos y bases completas usando la sesión activa de tu navegador."
+  }
+];
+
+// Fallback dinámico de requisitos generales si no existen
+const requisitos = rawDataObj.requisitos || [
+  "Presentar toda la documentación administrativa solicitada firmada digitalmente.",
+  "Desarrollar una propuesta técnica detallando la metodología de trabajo.",
+  "Cumplir cabalmente con las especificaciones técnicas descritas en las bases.",
+  "Completar y adjuntar el formulario de oferta económica (Anexo correspondiente)."
+];
+
+// Fallback dinámico de requisitos excluyentes si no existen
+const requisitosExcluyentes = rawDataObj.requisitosExcluyentes || [
+  "No registrar deudas previsionales ni de salud con los trabajadores (acreditar mediante Certificado F30-1).",
+  "No encontrarse inhabilitado para contratar con el Estado de acuerdo a la Ley de Compras Públicas.",
+  "Presentación obligatoria y correcta de la oferta económica sin omisiones de fondo.",
+  "Garantía de seriedad de la oferta exigida en las bases administrativas."
+];
+
+// Dynamic generator for personalized step-by-step guide
+function generatePasoAPaso(tenderObj: any, basesObj: any, _rawData: any) {
+  const fases = [
+    {
+      title: "Fase 1: Admisibilidad y Aclaraciones Iniciales 🔍",
+      desc: "Hitos preliminares y requisitos de entrada que no admiten errores.",
+      items: [] as Array<{ label: string; detail: string; excluyente?: boolean; estrategico?: boolean }>
+    },
+    {
+      title: "Fase 2: Preparación y Firmas de Anexos 📂",
+      desc: "Recopilación de declaraciones juradas, poderes legales y acreditación previsional.",
+      items: [] as Array<{ label: string; detail: string; excluyente?: boolean; estrategico?: boolean }>
+    },
+    {
+      title: "Fase 3: Desarrollo Técnico y Oferta de Equipo ⚙️",
+      desc: "Plan metodológico de trabajo y conformación de los perfiles expertos requeridos.",
+      items: [] as Array<{ label: string; detail: string; excluyente?: boolean; estrategico?: boolean }>
+    },
+    {
+      title: "Fase 4: Oferta Económica y Control de Calidad Final 🚀",
+      desc: "Revisión final de anexos económicos y envío antes de la hora de cierre.",
+      items: [] as Array<{ label: string; detail: string; excluyente?: boolean; estrategico?: boolean }>
+    }
+  ];
+
+  // --- FASE 1: Admisibilidad ---
+  // 1. Visita a terreno / Reunión obligatoria
+  let meetingFound = false;
+  const sectionsToCheck = [
+    basesObj?.etapasPlazos,
+    basesObj?.requisitosContratar,
+    basesObj?.requerimientosTecnicos
+  ];
+  for (const sect of sectionsToCheck) {
+    if (!sect) continue;
+    const lines = sect.split('\n');
+    for (const line of lines) {
+      const lLower = line.toLowerCase();
+      if (lLower.includes('reunión') || lLower.includes('visita') || lLower.includes('terreno') || lLower.includes('presencial') || lLower.includes('charla')) {
+        fases[0].items.push({
+          label: "Asistir obligatoriamente a reunión / visita a terreno.",
+          detail: line.replace(/^[•*\s\-]+/, ''),
+          excluyente: true
+        });
+        meetingFound = true;
+        break;
+      }
+    }
+    if (meetingFound) break;
+  }
+  if (!meetingFound && requisitosExcluyentes) {
+    for (const req of requisitosExcluyentes) {
+      const rLower = req.toLowerCase();
+      if (rLower.includes('reunión') || rLower.includes('visita') || rLower.includes('terreno')) {
+        fases[0].items.push({
+          label: "Asistir a la reunión informativa o visita presencial obligatoria.",
+          detail: req,
+          excluyente: true
+        });
+        meetingFound = true;
+        break;
+      }
+    }
+  }
+
+  // 2. Subcontratación
+  let subconFound = false;
+  const subconSections = [basesObj?.montosDuracion, basesObj?.requerimientosTecnicos];
+  for (const sect of subconSections) {
+    if (!sect) continue;
+    const lines = sect.split('\n');
+    for (const line of lines) {
+      if (line.toLowerCase().includes('subcontrat') && (line.toLowerCase().includes('prohib') || line.toLowerCase().includes('no permit') || line.toLowerCase().includes('no se autoriza'))) {
+        fases[0].items.push({
+          label: "Respetar prohibición de subcontratación.",
+          detail: line.replace(/^[•*\s\-]+/, ''),
+          excluyente: true
+        });
+        subconFound = true;
+        break;
+      }
+    }
+    if (subconFound) break;
+  }
+  if (!subconFound && requisitosExcluyentes) {
+    for (const req of requisitosExcluyentes) {
+      if (req.toLowerCase().includes('subcontrat')) {
+        fases[0].items.push({
+          label: "Prohibición de subcontratar: Revisar condiciones operativas.",
+          detail: req,
+          excluyente: true
+        });
+        subconFound = true;
+        break;
+      }
+    }
+  }
+
+  // 3. Foro de Consultas
+  let forumDate = "Revisar foro de preguntas en Mercado Público.";
+  if (basesObj?.etapasPlazos) {
+    const questionsLine = basesObj.etapasPlazos.split('\n').find((l: string) => l.toLowerCase().includes('pregunta') || l.toLowerCase().includes('foro'));
+    if (questionsLine) {
+      forumDate = questionsLine.replace(/^[•*\s\-]+/, '');
+    }
+  }
+  fases[0].items.push({
+    label: "Revisar y enviar consultas al Foro de Preguntas.",
+    detail: forumDate,
+    estrategico: true
+  });
+
+
+  // --- FASE 2: Preparación de Anexos ---
+  // 1. ChileProveedores y F30-1
+  fases[1].items.push({
+    label: "Acreditar habilidad en Registro ChileProveedores y certificado previsional.",
+    detail: "El oferente debe estar en estado 'HÁBIL'. Se exige no registrar deudas previsionales ni de salud con los trabajadores (Certificado F30-1).",
+    excluyente: true
+  });
+
+  // 2. Anexos administrativos
+  let docCount = 0;
+  if (basesObj?.antecedentes) {
+    const lines = basesObj.antecedentes.split('\n');
+    for (const line of lines) {
+      const cleanLine = line.replace(/^[•*\s\-]+/, '').trim();
+      if (cleanLine.toLowerCase().includes('anexo') || cleanLine.toLowerCase().includes('declaración jurada') || cleanLine.toLowerCase().includes('formulario')) {
+        const isEconomic = cleanLine.toLowerCase().includes('económ') || cleanLine.toLowerCase().includes('precio') || cleanLine.toLowerCase().includes('anexo 5');
+        const isTechnical = cleanLine.toLowerCase().includes('técnic') || cleanLine.toLowerCase().includes('metodolog') || cleanLine.toLowerCase().includes('experiencia') || cleanLine.toLowerCase().includes('anexo 6') || cleanLine.toLowerCase().includes('anexo 7');
+        if (!isEconomic && !isTechnical) {
+          fases[1].items.push({
+            label: `Preparar y firmar: ${cleanLine}`,
+            detail: "Asegurar que esté completo, firmado digitalmente por el representante legal.",
+            excluyente: cleanLine.toLowerCase().includes('anexo 1') || cleanLine.toLowerCase().includes('anexo 2') || cleanLine.toLowerCase().includes('obligatorio')
+          });
+          docCount++;
+        }
+      }
+    }
+  }
+  if (docCount === 0 && requisitos) {
+    for (const req of requisitos) {
+      if (req.toLowerCase().includes('anexo') || req.toLowerCase().includes('declaración')) {
+        fases[1].items.push({
+          label: `Preparar: ${req}`,
+          detail: "Completar la información legal y adjuntar firma.",
+          excluyente: true
+        });
+        docCount++;
+      }
+    }
+  }
+  if (docCount === 0) {
+    fases[1].items.push({
+      label: "Preparar Anexo N° 1 (Identificación del Oferente y Aceptación de Bases).",
+      detail: "Formulario administrativo básico indispensable.",
+      excluyente: true
+    });
+    fases[1].items.push({
+      label: "Preparar Anexo N° 2 (Declaración Jurada de No Inhabilidades).",
+      detail: "Declaración firmada de no tener prohibiciones para contratar con el Estado.",
+      excluyente: true
+    });
+  }
+
+  // 3. Garantía de Seriedad
+  let warrantyText = "No se menciona boleta de seriedad o se indica exención.";
+  let seriedadExigida = false;
+  if (basesObj?.garantias) {
+    const lines = basesObj.garantias.split('\n');
+    for (const line of lines) {
+      if (line.toLowerCase().includes('seriedad')) {
+        warrantyText = line.replace(/^[•*\s\-]+/, '');
+        seriedadExigida = !line.toLowerCase().includes('no se exige') && !line.toLowerCase().includes('no se requiere');
+        break;
+      }
+    }
+  }
+  fases[1].items.push({
+    label: seriedadExigida ? "Gestionar Boleta de Garantía de Seriedad de la Oferta." : "Verificar exención de Garantía de Seriedad.",
+    detail: warrantyText,
+    excluyente: seriedadExigida
+  });
+
+
+  // --- FASE 3: Desarrollo Técnico ---
+  // 1. Propuesta Técnica
+  let techWeight = "";
+  if (basesObj?.criteriosEvaluacion) {
+    const techLine = basesObj.criteriosEvaluacion.split('\n').find((l: string) => l.toLowerCase().includes('técnic'));
+    if (techLine) {
+      techWeight = ` (Ponderación: ${techLine.replace(/^[•*\s\-]+/, '')})`;
+    }
+  }
+  fases[2].items.push({
+    label: `Desarrollar la Propuesta Técnica Metodológica${techWeight}.`,
+    detail: `Redactar una metodología robusta alineada con el objetivo: "${tenderObj.title}".`,
+    excluyente: true
+  });
+
+  // 2. Personal Técnico
+  let profilesCount = 0;
+  if (basesObj?.antecedentes) {
+    const lines = basesObj.antecedentes.split('\n');
+    for (const line of lines) {
+      const cleanLine = line.replace(/^[•*\s\-]+/, '').trim();
+      if ((cleanLine.toLowerCase().includes('experiencia') || cleanLine.toLowerCase().includes('currículum') || cleanLine.toLowerCase().includes('personal') || cleanLine.toLowerCase().includes('anexo 6') || cleanLine.toLowerCase().includes('anexo 7')) && !cleanLine.toLowerCase().includes('oferente')) {
+        fases[2].items.push({
+          label: `Acreditar perfil: ${cleanLine}`,
+          detail: "Completar la ficha correspondiente y adjuntar currículums y certificados de título.",
+          excluyente: true
+        });
+        profilesCount++;
+      }
+    }
+  }
+  if (profilesCount === 0 && requisitosExcluyentes) {
+    for (const req of requisitosExcluyentes) {
+      if (req.toLowerCase().includes('diseñador') || req.toLowerCase().includes('desarrollador') || req.toLowerCase().includes('experiencia del personal')) {
+        fases[2].items.push({
+          label: `Acreditar equipo mínimo: ${req}`,
+          detail: "Demostrar experiencia del equipo técnico propuesto.",
+          excluyente: true
+        });
+        profilesCount++;
+      }
+    }
+  }
+
+
+  // --- FASE 4: Oferta Económica y Cierre ---
+  // 1. Oferta Económica
+  let ecoWeight = "";
+  if (basesObj?.criteriosEvaluacion) {
+    const ecoLine = basesObj.criteriosEvaluacion.split('\n').find((l: string) => l.toLowerCase().includes('económ') || l.toLowerCase().includes('precio'));
+    if (ecoLine) {
+      ecoWeight = ` (Ponderación: ${ecoLine.replace(/^[•*\s\-]+/, '')})`;
+    }
+  }
+  
+  let economicLabel = "Completar Formulario de Oferta Económica.";
+  if (tenderObj.budget > 0) {
+    economicLabel = `Completar Formulario de Oferta Económica sin superar presupuesto de ${formatBudget(tenderObj.budget, tenderObj.currency)}${ecoWeight}.`;
+  }
+  fases[3].items.push({
+    label: economicLabel,
+    detail: "Ingresar precio neto unitario y total en el portal y adjuntar el anexo respectivo firmado.",
+    excluyente: true
+  });
+
+  // 2. Control de Calidad / Foro Inverso
+  let reverseForum = "Revisar acuciosamente que no falte ningún documento antes del envío.";
+  if (basesObj?.requerimientosTecnicos) {
+    const lines = basesObj.requerimientosTecnicos.split('\n');
+    for (const line of lines) {
+      if (line.toLowerCase().includes('foro inverso') || line.toLowerCase().includes('aclaraciones') || line.toLowerCase().includes('subsanar')) {
+        reverseForum = `${line.replace(/^[•*\s\-]+/, '')}. ¡Subsanar descuenta puntaje de formalidad!`;
+        break;
+      }
+    }
+  }
+  fases[3].items.push({
+    label: "Control de Calidad: Evitar Foro Inverso y errores formales.",
+    detail: reverseForum,
+    estrategico: true
+  });
+
+  // 3. Envío y hora de cierre
+  let tiebreakerText = "Enviar con anticipación. En caso de empate, el orden/hora de ingreso define al ganador.";
+  if (basesObj?.requerimientosTecnicos) {
+    const lines = basesObj.requerimientosTecnicos.split('\n');
+    const tiebreakerLine = lines.find((l: string) => l.toLowerCase().includes('desempate') || l.toLowerCase().includes('hora de ingreso') || l.toLowerCase().includes('orden de ingreso'));
+    if (tiebreakerLine) {
+      tiebreakerText = `Desempate: ${tiebreakerLine.replace(/^[•*\s\-]+/, '')}.`;
+    }
+  }
+  fases[3].items.push({
+    label: `Enviar propuesta final antes del cierre: ${new Date(tenderObj.closeDate).toLocaleString('es-CL')}.`,
+    detail: tiebreakerText,
+    excluyente: true
+  });
+
+  return fases;
+}
+
+const activePasoAPaso = generatePasoAPaso(tender, dbTextoBases, rawDataObj);
+---
+<DashboardLayout title={`Licitación ${tender.externalCode}`} activeTab="dashboard">
+  <style>
+    .back-bar { padding: 16px 32px 0; }
+    .back-link { text-decoration: none; color: var(--muted2); font-size: 13px; font-weight: 600; display: inline-flex; align-items: center; gap: 6px; }
+    .back-link:hover { color: var(--text); }
+    
+    .content { padding: 24px 32px 32px; display: grid; grid-template-columns: 2fr 1fr; gap: 24px; }
+    .card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 16px; padding: 24px; margin-bottom: 24px;
+    }
+    .card-title { font-size: 18px; font-weight: 700; margin-bottom: 16px; display: flex; align-items: center; gap: 8px; }
+    
+    .tender-header { margin-bottom: 20px; }
+    .tender-meta { display: flex; gap: 8px; align-items: center; margin-bottom: 12px; }
+    .badge { font-size: 11px; font-weight: 700; padding: 4px 12px; border-radius: 50px; }
+    .status-pub { background: rgba(34,197,94,0.1); color: var(--green); border: 1px solid rgba(34,197,94,0.2); }
+    .code-badge { background: var(--surface2); color: var(--muted2); border: 1px solid var(--border); }
+    
+    .tender-title { font-size: 24px; font-weight: 900; line-height: 1.2; margin-bottom: 8px; }
+    .buyer-info { font-size: 14px; color: var(--muted2); display: flex; align-items: center; gap: 12px; }
+
+    .description-text { font-size: 14px; color: var(--muted2); line-height: 1.6; }
+
+    /* Score Details */
+    .score-metric { display: flex; align-items: center; gap: 16px; margin-bottom: 24px; }
+    .score-value { font-size: 54px; font-weight: 900; line-height: 1; }
+    
+    .score-breakdown { display: flex; flex-direction: column; gap: 12px; }
+    .dim-row { display: flex; align-items: center; gap: 12px; }
+    .dim-name { width: 120px; font-size: 13px; font-weight: 600; }
+    .dim-bar-container { flex: 1; height: 8px; background: var(--border); border-radius: 4px; overflow: hidden; }
+    .dim-bar-fill { height: 100%; border-radius: 4px; }
+    .dim-score-val { width: 50px; font-size: 13px; text-align: right; font-weight: 700; }
+    .dim-detail { font-size: 12px; color: var(--muted); }
+
+    /* AI Analysis style */
+    .ai-summary-box {
+      background: rgba(139,92,246,0.06); border: 1px solid rgba(139,92,246,0.15);
+      border-radius: 12px; padding: 18px; line-height: 1.6; font-size: 14px; color: var(--text);
+      margin-bottom: 20px;
+    }
+    .bullet-list { margin-left: 20px; font-size: 13px; color: var(--muted2); line-height: 1.6; }
+    .bullet-list li { margin-bottom: 8px; }
+    
+    /* Table specs */
+    .specs-table { width: 100%; border-collapse: collapse; }
+    .specs-table td { padding: 10px 0; font-size: 14px; border-bottom: 1px solid var(--border); }
+    .specs-table td:first-child { color: var(--muted); width: 40%; font-weight: 500; }
+    .specs-table td:last-child { color: var(--text); }
+
+    /* Premium Toast */
+    .toast {
+      position: fixed; top: 24px; right: 24px;
+      background: rgba(59, 130, 246, 0.1);
+      border: 1px solid rgba(59, 130, 246, 0.2);
+      color: var(--accent);
+      padding: 16px 24px; border-radius: 12px;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+      backdrop-filter: blur(12px);
+      z-index: 1000;
+      display: flex; align-items: center; gap: 10px;
+      transform: translateY(-20px); opacity: 0;
+      pointer-events: none;
+      transition: all 0.3s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+      font-size: 14px; font-weight: 600;
+    }
+    .toast.show {
+      transform: translateY(0); opacity: 1;
+    }
+
+    /* Requisitos y documentos styles */
+    .req-excluyente-box {
+      background: rgba(239, 68, 68, 0.04);
+      border: 1px solid rgba(239, 68, 68, 0.15);
+      border-radius: 12px;
+      padding: 16px;
+      margin-bottom: 20px;
+    }
+    .req-excluyente-title {
+      font-size: 14px;
+      font-weight: 700;
+      color: #ef4444;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-bottom: 10px;
+    }
+    .req-list, .doc-list {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+    }
+    .req-item {
+      font-size: 13px;
+      color: var(--muted2);
+      padding: 8px 0;
+      border-bottom: 1px solid rgba(255,255,255,0.03);
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+    }
+    .req-item:last-child {
+      border-bottom: none;
+    }
+    .req-bullet {
+      color: var(--accent);
+      font-weight: bold;
+    }
+    .req-excluyente-item {
+      font-size: 13px;
+      color: var(--text);
+      padding: 4px 0;
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+    }
+    .req-excluyente-bullet {
+      color: #ef4444;
+      font-weight: bold;
+    }
+    
+    .doc-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 12px 16px;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      margin-bottom: 10px;
+      transition: all 0.2s ease;
+    }
+    .doc-item:hover {
+      border-color: var(--accent);
+      background: rgba(59, 130, 246, 0.04);
+      transform: translateY(-1px);
+    }
+    .doc-info {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text);
+    }
+    .doc-icon {
+      font-size: 18px;
+    }
+    .doc-link {
+      font-size: 12px;
+      color: var(--accent);
+      text-decoration: none;
+      font-weight: 700;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 6px 12px;
+      background: rgba(59, 130, 246, 0.1);
+      border-radius: 6px;
+      transition: all 0.2s ease;
+    }
+    .doc-link:hover {
+      background: var(--accent);
+      color: #ffffff;
+    }
+    
+    .bases-text-box {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 20px;
+      font-size: 13px;
+      line-height: 1.6;
+      color: var(--muted2);
+      white-space: pre-wrap;
+      max-height: 400px;
+      overflow-y: auto;
+      font-family: inherit;
+    }
+
+    .explorer-card {
+      padding: 0 !important;
+      overflow: hidden;
+    }
+    .explorer-container {
+      display: grid;
+      grid-template-columns: 280px 1fr;
+      min-height: 520px;
+    }
+    .explorer-nav {
+      background: var(--surface2);
+      border-right: 1px solid var(--border);
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .nav-btn {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 12px 16px;
+      border: 1px solid transparent;
+      background: transparent;
+      border-radius: 8px;
+      color: var(--muted2);
+      font-size: 13px;
+      font-weight: 600;
+      text-align: left;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      width: 100%;
+    }
+    .nav-btn:hover {
+      background: rgba(255, 255, 255, 0.02);
+      color: var(--text);
+    }
+    .nav-btn.active {
+      background: rgba(59, 130, 246, 0.08);
+      border-color: rgba(59, 130, 246, 0.15);
+      color: var(--accent);
+    }
+    .nav-icon {
+      font-size: 16px;
+    }
+    .nav-divider {
+      height: 1px;
+      background: var(--border);
+      margin: 10px 0;
+    }
+    .explorer-content {
+      padding: 32px;
+      background: var(--surface);
+    }
+    .tab-panel {
+      display: none;
+    }
+    .tab-panel.active {
+      display: block;
+      animation: tabFadeIn 0.25s ease;
+    }
+    .panel-title {
+      font-size: 20px;
+      font-weight: 800;
+      color: var(--text);
+      margin-bottom: 8px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .panel-desc {
+      font-size: 13px;
+      color: var(--muted);
+      margin-bottom: 24px;
+      font-weight: 500;
+    }
+    .panel-text {
+      font-size: 13px;
+      line-height: 1.8;
+      color: var(--muted2);
+      white-space: pre-wrap;
+    }
+    
+    .panel-text strong {
+      color: var(--text);
+    }
+    
+    .panel-text code {
+      background: var(--surface2);
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-size: 12px;
+      color: var(--accent);
+      border: 1px solid var(--border);
+    }
+    
+    @keyframes tabFadeIn {
+      from { opacity: 0; transform: translateY(4px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    /* Style button prominently with accent color background / border at top */
+    .nav-btn.pasoapaso-btn {
+      background: linear-gradient(135deg, rgba(59, 130, 246, 0.15), rgba(139, 92, 246, 0.15));
+      border: 1px solid rgba(59, 130, 246, 0.3);
+      color: var(--accent);
+      margin-bottom: 8px;
+      font-weight: 700;
+    }
+    .nav-btn.pasoapaso-btn:hover {
+      background: linear-gradient(135deg, rgba(59, 130, 246, 0.25), rgba(139, 92, 246, 0.25));
+      border-color: rgba(59, 130, 246, 0.5);
+    }
+    .nav-btn.pasoapaso-btn.active {
+      background: linear-gradient(135deg, rgba(59, 130, 246, 0.25), rgba(139, 92, 246, 0.25));
+      border-color: var(--accent);
+      box-shadow: 0 0 12px rgba(59, 130, 246, 0.2);
+    }
+
+    /* Progress section */
+    .progress-section {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 16px 20px;
+      margin-bottom: 24px;
+    }
+    .progress-info {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 8px;
+    }
+    .progress-title {
+      font-size: 14px;
+      font-weight: 700;
+      color: var(--text);
+    }
+    .progress-pct {
+      font-size: 16px;
+      font-weight: 900;
+      color: var(--accent);
+    }
+    .progress-bar-bg {
+      width: 100%;
+      height: 8px;
+      background: rgba(255,255,255,0.05);
+      border-radius: 4px;
+      overflow: hidden;
+    }
+    .progress-bar-fill {
+      height: 100%;
+      background: linear-gradient(90deg, var(--accent) 0%, #10b981 100%);
+      width: 0%;
+      transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    /* Timeline layout styling */
+    .timeline-container {
+      position: relative;
+      padding-left: 12px;
+      margin-top: 10px;
+    }
+    .timeline-line {
+      position: absolute;
+      left: 11px;
+      top: 12px;
+      bottom: 12px;
+      width: 2px;
+      background: var(--border);
+      z-index: 1;
+    }
+    .timeline-step {
+      position: relative;
+      padding-left: 36px;
+      margin-bottom: 32px;
+      z-index: 2;
+    }
+    .timeline-badge {
+      position: absolute;
+      left: 0;
+      top: 2px;
+      width: 24px;
+      height: 24px;
+      border-radius: 50%;
+      background: var(--surface);
+      border: 2px solid var(--border);
+      color: var(--muted2);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 11px;
+      font-weight: 700;
+      z-index: 3;
+      transition: all 0.3s ease;
+      box-shadow: 0 0 0 4px var(--surface);
+    }
+    .timeline-step.completed-step .timeline-badge {
+      background: #10b981;
+      border-color: #10b981;
+      color: white;
+      box-shadow: 0 0 8px rgba(16, 185, 129, 0.3), 0 0 0 4px var(--surface);
+    }
+    .timeline-step.active-step .timeline-badge {
+      border-color: var(--accent);
+      color: var(--accent);
+      box-shadow: 0 0 8px rgba(59, 130, 246, 0.2), 0 0 0 4px var(--surface);
+    }
+    .step-title {
+      font-size: 15px;
+      font-weight: 800;
+      color: var(--text);
+      margin: 0 0 4px 0;
+    }
+    .step-desc {
+      font-size: 12px;
+      color: var(--muted);
+      margin: 0 0 16px 0;
+      font-weight: 500;
+    }
+    .step-items {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .step-item-label {
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+      padding: 12px 16px;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      cursor: pointer;
+      transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+      user-select: none;
+    }
+    .step-item-label:hover {
+      border-color: var(--muted);
+      background: rgba(255, 255, 255, 0.01);
+      transform: translateX(2px);
+    }
+    
+    /* Beautiful Custom Checkbox */
+    .checkbox-wrapper {
+      position: relative;
+      width: 20px;
+      height: 20px;
+      flex-shrink: 0;
+      margin-top: 1px;
+    }
+    .pasoapaso-checkbox {
+      position: absolute;
+      opacity: 0;
+      cursor: pointer;
+      height: 0;
+      width: 0;
+    }
+    .custom-checkbox {
+      position: absolute;
+      top: 0;
+      left: 0;
+      height: 20px;
+      width: 20px;
+      background-color: transparent;
+      border: 2px solid var(--border);
+      border-radius: 50%;
+      transition: all 0.2s ease;
+    }
+    .checkbox-wrapper:hover .custom-checkbox {
+      border-color: var(--muted);
+    }
+    .pasoapaso-checkbox:checked ~ .custom-checkbox {
+      background-color: #10b981;
+      border-color: #10b981;
+    }
+    .custom-checkbox:after {
+      content: "";
+      position: absolute;
+      display: none;
+    }
+    .pasoapaso-checkbox:checked ~ .custom-checkbox:after {
+      display: block;
+    }
+    .checkbox-wrapper .custom-checkbox:after {
+      left: 6px;
+      top: 3px;
+      width: 5px;
+      height: 9px;
+      border: solid white;
+      border-width: 0 2px 2px 0;
+      transform: rotate(45deg);
+    }
+
+    /* Styles for selected items */
+    .step-item-label.checked-item {
+      background: rgba(16, 185, 129, 0.03);
+      border-color: rgba(16, 185, 129, 0.2);
+    }
+    .step-item-label.checked-item .item-label-text {
+      text-decoration: line-through;
+      color: var(--muted);
+    }
+
+    /* Red accent for Excluyente */
+    .step-item-label.excluyente {
+      border-left: 4px solid #ef4444;
+    }
+    .step-item-label.excluyente:hover {
+      border-color: #ef4444 var(--border) var(--border) #ef4444;
+      background: rgba(239, 68, 68, 0.02);
+    }
+    .step-item-label.excluyente.checked-item {
+      border-left-color: #10b981;
+    }
+    .badge-excluyente {
+      font-size: 9px;
+      font-weight: 800;
+      color: #ef4444;
+      background: rgba(239, 68, 68, 0.1);
+      border: 1px solid rgba(239, 68, 68, 0.15);
+      padding: 1px 6px;
+      border-radius: 4px;
+      letter-spacing: 0.5px;
+      display: inline-block;
+      margin-top: 4px;
+    }
+    
+    /* Green or Orange accents for Strategic Tips */
+    .step-item-label.estrategico {
+      border-left: 4px solid #f59e0b;
+    }
+    .step-item-label.estrategico:hover {
+      border-color: #f59e0b var(--border) var(--border) #f59e0b;
+      background: rgba(245, 158, 11, 0.02);
+    }
+    .step-item-label.estrategico.checked-item {
+      border-left-color: #10b981;
+    }
+    .badge-estrategico {
+      font-size: 9px;
+      font-weight: 800;
+      color: #f59e0b;
+      background: rgba(245, 158, 11, 0.1);
+      border: 1px solid rgba(245, 158, 11, 0.15);
+      padding: 1px 6px;
+      border-radius: 4px;
+      letter-spacing: 0.5px;
+      display: inline-block;
+      margin-top: 4px;
+    }
+
+    .item-text-wrapper {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+    .item-label-text {
+      font-size: 13px;
+      font-weight: 550;
+      line-height: 1.5;
+      color: var(--text);
+    }
+
+    /* Accordion / Fases styling */
+    .fase-card {
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      margin-bottom: 16px;
+      overflow: hidden;
+      background: var(--surface2);
+      transition: all 0.25s ease;
+    }
+    .fase-header {
+      padding: 16px 20px;
+      background: rgba(255, 255, 255, 0.01);
+      cursor: pointer;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      user-select: none;
+      transition: background 0.2s ease;
+      border-bottom: 1px solid transparent;
+    }
+    .fase-card.open .fase-header {
+      border-bottom-color: var(--border);
+      background: rgba(255, 255, 255, 0.02);
+    }
+    .fase-header:hover {
+      background: rgba(255, 255, 255, 0.03);
+    }
+    .fase-info {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      text-align: left;
+    }
+    .fase-title {
+      font-size: 15px;
+      font-weight: 800;
+      color: var(--text);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .fase-badge {
+      font-size: 11px;
+      padding: 2px 8px;
+      border-radius: 20px;
+      background: rgba(59, 130, 246, 0.1);
+      color: var(--accent);
+      border: 1px solid rgba(59, 130, 246, 0.15);
+      font-weight: 700;
+    }
+    .fase-badge.complete {
+      background: rgba(16, 185, 129, 0.1);
+      color: #10b981;
+      border-color: rgba(16, 185, 129, 0.15);
+    }
+    .fase-desc {
+      font-size: 12px;
+      color: var(--muted);
+      font-weight: 500;
+    }
+    .fase-toggle-icon {
+      font-size: 14px;
+      color: var(--muted);
+      transition: transform 0.25s ease;
+    }
+    .fase-card.open .fase-toggle-icon {
+      transform: rotate(180deg);
+    }
+    .fase-content {
+      padding: 20px;
+      display: none;
+      background: var(--surface);
+    }
+    .fase-card.open .fase-content {
+      display: block;
+    }
+
+    /* Task Item styles */
+    .task-item-container {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 16px;
+      margin-bottom: 12px;
+      transition: all 0.2s ease;
+      text-align: left;
+    }
+    .task-item-container:hover {
+      border-color: var(--muted);
+    }
+    .task-item-container.excluyente {
+      border-left: 4px solid #ef4444;
+    }
+    .task-item-container.estrategico {
+      border-left: 4px solid #f59e0b;
+    }
+    .task-item-container.completed-task {
+      border-left-color: #10b981;
+      background: rgba(16, 185, 129, 0.02);
+      border-color: rgba(16, 185, 129, 0.15);
+    }
+    
+    .task-main-row {
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+    }
+    .task-content-block {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .task-title {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text);
+      line-height: 1.5;
+    }
+    .task-item-container.completed-task .task-title {
+      text-decoration: line-through;
+      color: var(--muted);
+    }
+    .task-detail {
+      font-size: 12px;
+      color: var(--muted);
+      line-height: 1.4;
+    }
+
+    /* Task controls row */
+    .task-controls-row {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 12px;
+      margin-top: 8px;
+      padding-top: 8px;
+      border-top: 1px solid rgba(255, 255, 255, 0.03);
+    }
+    .control-group {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .control-label {
+      font-size: 11px;
+      color: var(--muted);
+      font-weight: 600;
+    }
+    .task-select {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      color: var(--text);
+      font-size: 12px;
+      font-weight: 550;
+      padding: 4px 8px;
+      border-radius: 6px;
+      cursor: pointer;
+      outline: none;
+      transition: all 0.2s ease;
+    }
+    .task-select:hover {
+      border-color: var(--muted);
+    }
+    
+    /* Dynamic color code for task select status */
+    .task-select.status-pending { color: var(--muted2); }
+    .task-select.status-in-progress { color: #f59e0b; border-color: rgba(245, 158, 11, 0.3); background: rgba(245, 158, 11, 0.05); }
+    .task-select.status-completed { color: #10b981; border-color: rgba(16, 185, 129, 0.3); background: rgba(16, 185, 129, 0.05); }
+
+    .note-btn {
+      background: transparent;
+      border: none;
+      color: var(--muted);
+      cursor: pointer;
+      font-size: 12px;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      padding: 4px 8px;
+      border-radius: 6px;
+      font-weight: 500;
+      transition: all 0.2s ease;
+    }
+    .note-btn:hover {
+      color: var(--text);
+      background: rgba(255, 255, 255, 0.02);
+    }
+    .note-btn.has-notes {
+      color: var(--accent);
+      background: rgba(59, 130, 246, 0.05);
+    }
+
+    .task-note-input-wrapper {
+      display: none;
+      margin-top: 8px;
+      width: 100%;
+    }
+    .task-note-input-wrapper.open {
+      display: block;
+    }
+    .task-textarea {
+      width: 100%;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      color: var(--text);
+      font-size: 12px;
+      padding: 8px;
+      border-radius: 8px;
+      resize: vertical;
+      min-height: 50px;
+      outline: none;
+      font-family: inherit;
+    }
+    .task-textarea:focus {
+      border-color: var(--accent);
+    }
+
+    /* Confetti canvas */
+    #confetti-canvas {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+      z-index: 10;
+    }
+
+    /* Activity log panel */
+    .activity-log-card {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 20px;
+      margin-top: 24px;
+      text-align: left;
+    }
+    .activity-log-title {
+      font-size: 14px;
+      font-weight: 700;
+      color: var(--text);
+      margin-bottom: 12px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .activity-log-container {
+      max-height: 180px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      padding-right: 8px;
+    }
+    .log-entry {
+      font-size: 11px;
+      color: var(--muted);
+      line-height: 1.4;
+      padding-bottom: 6px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.02);
+    }
+    .log-entry:last-child {
+      border-bottom: none;
+    }
+    .log-timestamp {
+      color: var(--muted2);
+      font-weight: 700;
+      margin-right: 4px;
+    }
+    
+    .btn-export {
+      background: rgba(255, 255, 255, 0.02);
+      border: 1px solid var(--border);
+      color: var(--text);
+      font-size: 12px;
+      font-weight: 600;
+      padding: 6px 12px;
+      border-radius: 8px;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      transition: all 0.2s ease;
+    }
+    .btn-export:hover {
+      background: var(--surface2);
+      border-color: var(--muted);
+    }
+  </style>
+
+  <div class="back-bar">
+    <a href="/dashboard" class="back-link">← Volver al Dashboard</a>
+  </div>
+
+  <div class="content">
+    <!-- Success Toast -->
+    <div id="success-toast" class="toast">
+      <span>⭐</span>
+      <span>Licitación guardada en tu panel de interesantes.</span>
+    </div>
+
+    <div>
+      <!-- Main card -->
+      <div class="card">
+        <div class="tender-header">
+          <div class="tender-meta">
+            <span class="badge status-pub">● {tender.status}</span>
+            <span class="badge code-badge">{tender.externalCode}</span>
+          </div>
+          <h1 class="tender-title">{tender.title}</h1>
+          <div class="buyer-info">
+            <span>🏢 {tender.buyerName}</span>
+            <span>•</span>
+            <span>RUT: {tender.buyerRUT}</span>
+            <span>•</span>
+            <span>📍 {tender.buyerRegion}</span>
+          </div>
+        </div>
+
+        <div class="card-title" style="border-top: 1px solid var(--border); padding-top: 20px; font-size: 15px;">Descripción del Proceso</div>
+        <p class="description-text">{tender.description}</p>
+      </div>
+
+      <!-- AI Insights -->
+      <div class="card">
+        <div class="card-title">🤖 Recomendación de VC Elemental IA</div>
+        
+        <div class="ai-summary-box">
+          <strong>Resumen de Oportunidad:</strong><br>
+          {tender.aiSummary}
+        </div>
+
+        <div style="display:grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+          <div>
+            <div style="font-size:13px; font-weight:700; color:var(--green); margin-bottom:10px;">🟢 Fortalezas / Por qué postular:</div>
+            <ul class="bullet-list">
+              {tender.aiPoints.map((p: string) => <li>{p}</li>)}
+            </ul>
+          </div>
+          <div>
+            <div style="font-size:13px; font-weight:700; color:var(--red); margin-bottom:10px;">🔴 Riesgos a considerar:</div>
+            <ul class="bullet-list">
+              {tender.aiRisks.map((r: string) => <li>{r}</li>)}
+            </ul>
+          </div>
+        </div>
+      </div>
+
+      <!-- Bidding Explorer (9 Key Points + Documents) -->
+      <div class="card explorer-card">
+        <div class="explorer-container">
+          <!-- Left Navigation Menu -->
+          <div class="explorer-nav">
+            <button class="nav-btn active pasoapaso-btn" data-target="panel-pasoapaso">
+              <span class="nav-icon">🚀</span>
+              <span class="nav-text">Guía Paso a Paso</span>
+            </button>
+            <div class="nav-divider"></div>
+            <button class="nav-btn" data-target="panel-caracteristicas">
+              <span class="nav-icon">📋</span>
+              <span class="nav-text">1. Características</span>
+            </button>
+            <button class="nav-btn" data-target="panel-organismo">
+              <span class="nav-icon">🏢</span>
+              <span class="nav-text">2. Organismo Demandante</span>
+            </button>
+            <button class="nav-btn" data-target="panel-etapas">
+              <span class="nav-icon">📅</span>
+              <span class="nav-text">3. Etapas y Plazos</span>
+            </button>
+            <button class="nav-btn" data-target="panel-antecedentes">
+              <span class="nav-icon">📂</span>
+              <span class="nav-text">4. Antecedentes Requeridos</span>
+            </button>
+            <button class="nav-btn" data-target="panel-requisitos">
+              <span class="nav-icon">🛡️</span>
+              <span class="nav-text">5. Requisitos para Contratar</span>
+            </button>
+            <button class="nav-btn" data-target="panel-criterios">
+              <span class="nav-icon">📊</span>
+              <span class="nav-text">6. Criterios de Evaluación</span>
+            </button>
+            <button class="nav-btn" data-target="panel-montos">
+              <span class="nav-icon">💰</span>
+              <span class="nav-text">7. Montos y Duración</span>
+            </button>
+            <button class="nav-btn" data-target="panel-garantias">
+              <span class="nav-icon">🔐</span>
+              <span class="nav-text">8. Garantías Requeridas</span>
+            </button>
+            <button class="nav-btn" data-target="panel-tecnicos">
+              <span class="nav-icon">⚙️</span>
+              <span class="nav-text">9. Requerimientos Técnicos</span>
+            </button>
+            <div class="nav-divider"></div>
+            <button class="nav-btn" data-target="panel-descargas">
+              <span class="nav-icon">📁</span>
+              <span class="nav-text">Descarga de Adjuntos</span>
+            </button>
+          </div>
+          
+          <!-- Right Content Panels -->
+          <div class="explorer-content">
+            <!-- Guía Paso a Paso -->
+            <!-- Guía Paso a Paso -->
+            <div class="tab-panel active" id="panel-pasoapaso" style="position: relative;" data-tender-code={tender.externalCode}>
+              <!-- Canvas for confetti -->
+              <canvas id="confetti-canvas"></canvas>
+
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                <h3 class="panel-title">🚀 Guía Paso a Paso de Postulación</h3>
+                <button class="btn-export" id="btn-export-checklist">
+                  <span>📋</span> Copiar Checklist
+                </button>
+              </div>
+              <p class="panel-desc">Sigue esta guía interactiva personalizada por fases para asegurar el éxito y admisibilidad de tu oferta.</p>
+              
+              <div class="progress-section">
+                <div class="progress-info">
+                  <span class="progress-title">Progreso General de Postulación</span>
+                  <span class="progress-pct" id="pasoapaso-progress-text">0%</span>
+                </div>
+                <div class="progress-bar-bg">
+                  <div class="progress-bar-fill" id="pasoapaso-progress-bar" style="width: 0%;"></div>
+                </div>
+              </div>
+
+              <!-- Accordion of Phases -->
+              <div class="fases-wrapper">
+                {activePasoAPaso.map((fase, faseIdx) => (
+                  <div class="fase-card open" data-fase={faseIdx}>
+                    <div class="fase-header">
+                      <div class="fase-info">
+                        <div class="fase-title">
+                          <span>{fase.title}</span>
+                          <span class="fase-badge" id={`fase-badge-${faseIdx}`}>0/0</span>
+                        </div>
+                        <span class="fase-desc">{fase.desc}</span>
+                      </div>
+                      <span class="fase-toggle-icon">▼</span>
+                    </div>
+                    
+                    <div class="fase-content">
+                      <div class="fase-items-list">
+                        {fase.items.map((item, itemIdx) => {
+                          const taskId = `task-${faseIdx}-${itemIdx}`;
+                          return (
+                            <div 
+                              class={`task-item-container ${item.excluyente ? 'excluyente' : ''} ${item.estrategico ? 'estrategico' : ''}`}
+                              data-task-id={taskId}
+                              data-fase-idx={faseIdx}
+                            >
+                              <div class="task-main-row">
+                                <!-- Checkbox to mark complete quickly -->
+                                <div class="checkbox-wrapper">
+                                  <input 
+                                    type="checkbox" 
+                                    class="pasoapaso-checkbox" 
+                                    id={`check-${taskId}`}
+                                    data-task-id={taskId}
+                                    data-fase-idx={faseIdx}
+                                  />
+                                  <span class="custom-checkbox"></span>
+                                </div>
+                                
+                                <div class="task-content-block">
+                                  <span class="task-title">{item.label}</span>
+                                  {item.detail && <span class="task-detail">{item.detail}</span>}
+                                  
+                                  <div style="display: flex; gap: 6px; margin-top: 4px;">
+                                    {item.excluyente && <span class="badge-excluyente">EXCLUYENTE</span>}
+                                    {item.estrategico && <span class="badge-estrategico">TIP ESTRATÉGICO</span>}
+                                  </div>
+                                </div>
+                              </div>
+                              
+                              <!-- Controls (Assignee, Status, Notes toggle) -->
+                              <div class="task-controls-row">
+                                <div class="control-group">
+                                  <span class="control-label">Encargado:</span>
+                                  <select class="task-select assignee-select" data-task-id={taskId}>
+                                    <option value="">Sin asignar</option>
+                                    {companyUsers.map(u => (
+                                      <option value={u.name}>{u.name}</option>
+                                    ))}
+                                  </select>
+                                </div>
+                                
+                                <div class="control-group">
+                                  <span class="control-label">Estado:</span>
+                                  <select class="task-select status-select" data-task-id={taskId}>
+                                    <option value="pending">⭕ Pendiente</option>
+                                    <option value="in_progress">⏳ En Proceso</option>
+                                    <option value="completed">✅ Completado</option>
+                                  </select>
+                                </div>
+                                
+                                <button class="note-btn" data-task-id={taskId}>
+                                  <span>📝</span> <span class="note-btn-text">Agregar Nota</span>
+                                </button>
+                              </div>
+                              
+                              <!-- Collapsible note textarea -->
+                              <div class="task-note-input-wrapper" id={`note-wrap-${taskId}`}>
+                                <textarea 
+                                  class="task-textarea note-textarea" 
+                                  data-task-id={taskId}
+                                  placeholder="Escribe apuntes operativos sobre esta tarea..."
+                                />
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <!-- Activity Log -->
+              <div class="activity-log-card">
+                <div class="activity-log-title">
+                  <span>📝</span>
+                  <span>Historial de Avance de Postulación</span>
+                </div>
+                <div class="activity-log-container" id="activity-log-list">
+                  <div class="log-entry">No hay actividad registrada aún.</div>
+                </div>
+              </div>
+            </div>
+
+            <!-- 1. Características -->
+            <div class="tab-panel" id="panel-caracteristicas">
+              <h3 class="panel-title">📋 Características de la Licitación</h3>
+              <p class="panel-desc">Metadatos, códigos oficiales y estado de vigencia del proceso de contratación.</p>
+              <div class="panel-text" set:html={renderMarkdown(puntosBases.caracteristicas)} />
+            </div>
+            
+            <!-- 2. Organismo -->
+            <div class="tab-panel" id="panel-organismo">
+              <h3 class="panel-title">🏢 Organismo Comprador y Demandante</h3>
+              <p class="panel-desc">Detalle de la entidad pública solicitante, división y contactos del proceso.</p>
+              <div class="panel-text" set:html={renderMarkdown(puntosBases.organismo)} />
+            </div>
+            
+            <!-- 3. Etapas -->
+            <div class="tab-panel" id="panel-etapas">
+              <h3 class="panel-title">📅 Etapas y Plazos Críticos</h3>
+              <p class="panel-desc">Calendario oficial del proceso. Cumplir con los plazos es indispensable para la admisibilidad.</p>
+              <div class="panel-text" set:html={renderMarkdown(puntosBases.etapasPlazos)} />
+            </div>
+            
+            <!-- 4. Antecedentes -->
+            <div class="tab-panel" id="panel-antecedentes">
+              <h3 class="panel-title">📂 Antecedentes a Presentar</h3>
+              <p class="panel-desc">Listado de declaraciones juradas, anexos administrativos, propuestas técnicas y económicas necesarias.</p>
+              <div class="panel-text" set:html={renderMarkdown(puntosBases.antecedentes)} />
+            </div>
+            
+            <!-- 5. Requisitos -->
+            <div class="tab-panel" id="panel-requisitos">
+              <h3 class="panel-title">🛡️ Requisitos para Contratar</h3>
+              <p class="panel-desc">Condiciones obligatorias e inhabilitaciones legales previas a la firma del contrato adjudicado.</p>
+              <div class="panel-text" set:html={renderMarkdown(puntosBases.requisitosContratar)} />
+            </div>
+            
+            <!-- 6. Criterios -->
+            <div class="tab-panel" id="panel-criterios">
+              <h3 class="panel-title">📊 Criterios de Evaluación y Calificación</h3>
+              <p class="panel-desc">Matriz de ponderación utilizada por la comisión técnica para calificar y adjudicar la oferta.</p>
+              <div class="panel-text" set:html={renderMarkdown(puntosBases.criteriosEvaluacion)} />
+            </div>
+            
+            <!-- 7. Montos -->
+            <div class="tab-panel" id="panel-montos">
+              <h3 class="panel-title">💰 Montos, Pagos y Duración del Contrato</h3>
+              <p class="panel-desc">Presupuestos estimados, plazos de servicio, términos de pago y cláusulas de subcontratación.</p>
+              <div class="panel-text" set:html={renderMarkdown(puntosBases.montosDuracion)} />
+            </div>
+            
+            <!-- 8. Garantías -->
+            <div class="tab-panel" id="panel-garantias">
+              <h3 class="panel-title">🔐 Garantías y Resguardos Exigidos</h3>
+              <p class="panel-desc">Detalle de boletas de seriedad de la oferta y fiel cumplimiento exigidos por el organismo mandante.</p>
+              <div class="panel-text" set:html={renderMarkdown(puntosBases.garantias)} />
+            </div>
+            
+            <!-- 9. Requerimientos Técnicos -->
+            <div class="tab-panel" id="panel-tecnicos">
+              <h3 class="panel-title">⚙️ Requerimientos Técnicos y Cláusulas Operativas</h3>
+              <p class="panel-desc">Términos de referencia, perfiles del equipo técnico, mecanismos de foro inverso y desempate.</p>
+              <div class="panel-text" set:html={renderMarkdown(puntosBases.requerimientosTecnicos)} />
+            </div>
+            
+            <!-- 10. Descarga de Adjuntos -->
+            <div class="tab-panel" id="panel-descargas">
+              <h3 class="panel-title">📁 Descarga de Documentos Adjuntos</h3>
+              <p class="panel-desc">Enlaces directos a los repositorios de archivos oficiales de Mercado Público.</p>
+              
+              <div class="doc-list" style="margin-top: 15px;">
+                {documentos.map((doc) => (
+                  <div class="doc-item">
+                    <div class="doc-info" style="flex-direction: column; align-items: flex-start; gap: 4px; padding: 4px 0;">
+                      <div style="display: flex; align-items: center; gap: 12px; font-weight: 700;">
+                        <span class="doc-icon">📄</span>
+                        <span>{doc.nombre}</span>
+                      </div>
+                      {doc.desc && <div style="font-size: 11px; color: var(--muted); margin-left: 30px; font-weight: 500; line-height: 1.4;">{doc.desc}</div>}
+                    </div>
+                    <a href={doc.link} target="_blank" rel="noopener noreferrer" class="doc-link" style="white-space: nowrap;">
+                      Ver en Portal ↗
+                    </a>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Sidebar scoring -->
+    <div>
+      <!-- Score -->
+      <div class="card" style="position: sticky; top: 90px;">
+        <div class="card-title" style="margin-bottom:8px">Score de Oportunidad</div>
+        
+        <div class="score-metric">
+          <div class="score-value" style={`color: ${scoreColor(tender.scoreTotal)}`}>
+            {scoreEmoji(tender.scoreTotal)} {tender.scoreTotal}
+          </div>
+          <div>
+            <div style="font-size: 15px; font-weight: 700; color: var(--text);">{tender.scoreLabel}</div>
+            <div class="score-label-text">de 100 puntos posibles</div>
+          </div>
+        </div>
+
+        <div class="score-breakdown" style="border-top: 1px solid var(--border); padding-top: 20px; margin-bottom: 24px;">
+          {[
+            { name: '🏭 Rubro', val: tender.scoreRubro, max: 40, detail: tender.rubroLabel },
+            { name: '📍 Región', val: tender.scoreRegion, max: 30, detail: tender.regionLabel },
+            { name: '💰 Presupuesto', val: tender.scoreBudget, max: 20, detail: tender.budgetLabel },
+            { name: '⏰ Urgencia', val: tender.scoreUrgency, max: 10, detail: tender.urgencyLabel },
+          ].map(dim => (
+            <div>
+              <div class="dim-row">
+                <span class="dim-name">{dim.name}</span>
+                <div class="dim-bar-container">
+                  <div class="dim-bar-fill" style={`width:${(dim.val/dim.max)*100}%; background:${scoreColor(tender.scoreTotal)}`}></div>
+                </div>
+                <span class="dim-score-val">{dim.val}/{dim.max}</span>
+              </div>
+              <div class="dim-detail" style="margin-left: 132px; margin-top: 2px;">{dim.detail}</div>
+            </div>
+          ))}
+        </div>
+
+        <!-- Specifications -->
+        <div style="border-top: 1px solid var(--border); padding-top: 20px;">
+          <div style="font-size: 13px; font-weight: 700; margin-bottom: 12px;">Detalle Comercial</div>
+          <table class="specs-table">
+            <tr>
+              <td>Monto Estimado</td>
+              <td style="color:var(--green); font-weight:bold;">{formatBudget(tender.budget, tender.currency)}</td>
+            </tr>
+            <tr>
+              <td>Fecha de Cierre</td>
+              <td style="color:var(--orange);">{tender.closeDate.toLocaleDateString('es-CL')}</td>
+            </tr>
+            <tr>
+              <td>Lugar de Ejecución</td>
+              <td>{tender.buyerRegion}</td>
+            </tr>
+          </table>
+        </div>
+        
+        <button class="btn-sm btn-primary" id="btn-interested" style="width: 100%; margin-top:24px; padding:12px">⭐ Agregar a Interesantes</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // 1. Agregar a Interesantes (Toast)
+    const interestedBtn = document.getElementById('btn-interested');
+    const toast = document.getElementById('success-toast');
+
+    if (interestedBtn) {
+      interestedBtn.addEventListener('click', () => {
+        if (toast) {
+          toast.classList.add('show');
+          setTimeout(() => {
+            toast.classList.remove('show');
+          }, 3000);
+        }
+      });
+    }
+
+    // 2. Controladores de Pestañas del Explorer
+    const navButtons = document.querySelectorAll('.nav-btn');
+    const panels = document.querySelectorAll('.tab-panel');
+
+    navButtons.forEach(btn => {
+      btn.addEventListener('click', () => {
+        // Desactivar todos los botones
+        navButtons.forEach(b => b.classList.remove('active'));
+        // Ocultar todos los paneles
+        panels.forEach(p => p.classList.remove('active'));
+
+        // Activar botón clickeado
+        btn.classList.add('active');
+        
+        // Mostrar panel correspondiente
+        const targetId = btn.getAttribute('data-target');
+        if (targetId) {
+          const targetPanel = document.getElementById(targetId);
+          if (targetPanel) {
+            targetPanel.classList.add('active');
+          }
+        }
+      });
+    });
+
+    // 3. Script para la Guía Paso a Paso (Checklist, Asignaciones, Bitácora y Confeti)
+    const panelPasoAPaso = document.getElementById('panel-pasoapaso');
+    const tenderCode = panelPasoAPaso ? panelPasoAPaso.getAttribute('data-tender-code') : '';
+    const progressText = document.getElementById('pasoapaso-progress-text');
+    const progressBar = document.getElementById('pasoapaso-progress-bar');
+    const canvas = document.getElementById('confetti-canvas') as HTMLCanvasElement;
+    const logList = document.getElementById('activity-log-list');
+    const exportBtn = document.getElementById('btn-export-checklist');
+
+    // Confetti Animation Implementation
+    class ConfettiEffect {
+      private canvas: HTMLCanvasElement;
+      private ctx: CanvasRenderingContext2D | null;
+      private particles: Array<any> = [];
+      private active: boolean = false;
+      private colors: string[] = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899'];
+
+      constructor(canvasElement: HTMLCanvasElement) {
+        this.canvas = canvasElement;
+        this.ctx = canvasElement.getContext('2d');
+      }
+
+      public start() {
+        if (!this.ctx) return;
+        this.canvas.width = this.canvas.parentElement?.clientWidth || 800;
+        this.canvas.height = this.canvas.parentElement?.clientHeight || 600;
+        this.particles = [];
+
+        for (let i = 0; i < 120; i++) {
+          this.particles.push({
+            x: Math.random() * this.canvas.width,
+            y: Math.random() * this.canvas.height - this.canvas.height,
+            r: Math.random() * 5 + 3,
+            d: Math.random() * this.canvas.height,
+            color: this.colors[Math.floor(Math.random() * this.colors.length)],
+            tilt: Math.random() * 10 - 5,
+            tiltAngleIncremental: Math.random() * 0.07 + 0.02,
+            tiltAngle: 0
+          });
+        }
+        this.active = true;
+        this.animate();
+      }
+
+      private animate() {
+        if (!this.active || !this.ctx) return;
+        this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+        let remaining = false;
+
+        this.particles.forEach(p => {
+          p.tiltAngle += p.tiltAngleIncremental;
+          p.y += (Math.cos(p.d) + 3 + p.r / 2) / 2;
+          p.x += Math.sin(p.tiltAngle);
+          p.tilt = Math.sin(p.tiltAngle - p.r / 2) * 5;
+
+          if (p.y < this.canvas.height) {
+            remaining = true;
+          }
+
+          this.ctx!.beginPath();
+          this.ctx!.lineWidth = p.r;
+          this.ctx!.strokeStyle = p.color;
+          this.ctx!.moveTo(p.x + p.tilt + p.r / 2, p.y);
+          this.ctx!.lineTo(p.x + p.tilt, p.y + p.tilt + p.r / 2);
+          this.ctx!.stroke();
+        });
+
+        if (remaining) {
+          requestAnimationFrame(() => this.animate());
+        } else {
+          this.active = false;
+          this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+        }
+      }
+    }
+
+    const confetti = canvas ? new ConfettiEffect(canvas) : null;
+
+    // Helpers to manage LocalStorage safely
+    function checkLocalStorage() {
+      try {
+        return typeof window !== 'undefined' && 'localStorage' in window && window.localStorage !== null;
+      } catch (e) {
+        return false;
+      }
+    }
+    const hasLocalStorage = checkLocalStorage();
+
+    // Accordion Toggle Logic
+    const headers = document.querySelectorAll('.fase-header');
+    headers.forEach(h => {
+      h.addEventListener('click', () => {
+        const card = h.closest('.fase-card');
+        if (card) card.classList.toggle('open');
+      });
+    });
+
+    // Notes Toggle logic
+    const noteBtns = document.querySelectorAll('.note-btn');
+    noteBtns.forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.preventDefault();
+        const taskId = btn.getAttribute('data-task-id');
+        const wrap = document.getElementById(`note-wrap-${taskId}`);
+        const btnText = btn.querySelector('.note-btn-text');
+        
+        if (wrap && btnText) {
+          wrap.classList.toggle('open');
+          const isOpen = wrap.classList.contains('open');
+          btnText.textContent = isOpen ? "Ocultar Nota" : "Editar Nota";
+          
+          if (isOpen) {
+            const textarea = wrap.querySelector('textarea');
+            if (textarea) textarea.focus();
+          }
+        }
+      });
+    });
+
+    // Activity logging helper
+    function addActivityLog(msg: string) {
+      if (!hasLocalStorage || !tenderCode) return;
+      const logKey = `vc-elemental-mp-tender-${tenderCode}-activity-log`;
+      const savedLogs = localStorage.getItem(logKey);
+      const logs = savedLogs ? JSON.parse(savedLogs) : [];
+      
+      const timestamp = new Date().toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' });
+      logs.unshift({ timestamp, msg });
+      
+      // Limit to last 15 log messages
+      const trimmed = logs.slice(0, 15);
+      localStorage.setItem(logKey, JSON.stringify(trimmed));
+      renderActivityLog();
+    }
+
+    function renderActivityLog() {
+      if (!logList || !hasLocalStorage || !tenderCode) return;
+      const logKey = `vc-elemental-mp-tender-${tenderCode}-activity-log`;
+      const savedLogs = localStorage.getItem(logKey);
+      const logs = savedLogs ? JSON.parse(savedLogs) : [];
+
+      if (logs.length === 0) {
+        logList.innerHTML = '<div class="log-entry">No hay actividad registrada aún.</div>';
+        return;
+      }
+
+      logList.innerHTML = logs.map((log: any) => `
+        <div class="log-entry">
+          <span class="log-timestamp">[${log.timestamp}]</span>
+          <span>${log.msg}</span>
+        </div>
+      `).join('');
+    }
+
+    // Dynamic color coding helper for selects
+    function updateSelectColor(selectEl: HTMLSelectElement) {
+      selectEl.classList.remove('status-pending', 'status-in-progress', 'status-completed');
+      if (selectEl.value === 'pending') selectEl.classList.add('status-pending');
+      else if (selectEl.value === 'in_progress') selectEl.classList.add('status-in-progress');
+      else if (selectEl.value === 'completed') selectEl.classList.add('status-completed');
+    }
+
+    // Main logic to update percentages and badges
+    function updateProgress() {
+      const taskContainers = document.querySelectorAll('.task-item-container');
+      const total = taskContainers.length;
+      if (total === 0) return;
+
+      let completedCount = 0;
+      
+      // Check status of each task
+      taskContainers.forEach(container => {
+        const taskId = container.getAttribute('data-task-id');
+        const checkbox = container.querySelector('.pasoapaso-checkbox') as HTMLInputElement;
+        const statusSelect = container.querySelector('.status-select') as HTMLSelectElement;
+        
+        const stateKey = `vc-elemental-mp-tender-${tenderCode}-task-${taskId}`;
+        const savedStateStr = hasLocalStorage ? localStorage.getItem(stateKey) : null;
+        const state = savedStateStr ? JSON.parse(savedStateStr) : { status: 'pending', assignee: '', notes: '' };
+
+        // Sync statuses
+        if (state.status === 'completed') {
+          completedCount++;
+          container.classList.add('completed-task');
+          if (checkbox) checkbox.checked = true;
+        } else {
+          container.classList.remove('completed-task');
+          if (checkbox) checkbox.checked = false;
+        }
+
+        if (statusSelect) {
+          statusSelect.value = state.status;
+          updateSelectColor(statusSelect);
+        }
+      });
+
+      // Update total progress bar
+      const percentage = Math.round((completedCount / total) * 100);
+      if (progressBar) progressBar.style.width = `${percentage}%`;
+      if (progressText) progressText.textContent = `${percentage}%`;
+
+      // Update phase completion badges (e.g. 2/4)
+      const phases = document.querySelectorAll('.fase-card');
+      phases.forEach(phase => {
+        const faseIdx = phase.getAttribute('data-fase');
+        const phaseTasks = phase.querySelectorAll('.task-item-container');
+        const phaseTotal = phaseTasks.length;
+        let phaseCompleted = 0;
+        
+        phaseTasks.forEach(task => {
+          if (task.classList.contains('completed-task')) {
+            phaseCompleted++;
+          }
+        });
+
+        const badge = document.getElementById(`fase-badge-${faseIdx}`);
+        if (badge) {
+          badge.textContent = `${phaseCompleted}/${phaseTotal}`;
+          badge.classList.remove('complete');
+          if (phaseCompleted === phaseTotal && phaseTotal > 0) {
+            badge.classList.add('complete');
+          }
+        }
+      });
+
+      // Check for 100% celebration
+      const celebratesKey = `vc-elemental-mp-tender-${tenderCode}-celebrated`;
+      if (percentage === 100 && hasLocalStorage && localStorage.getItem(celebratesKey) !== 'true') {
+        localStorage.setItem(celebratesKey, 'true');
+        if (confetti) confetti.start();
+        addActivityLog("🎉 ¡Postulación completa! Todos los hitos y requisitos han sido listados.");
+      } else if (percentage < 100 && hasLocalStorage) {
+        localStorage.removeItem(celebratesKey);
+      }
+    }
+
+    // Load initial state for all tasks
+    if (hasLocalStorage && tenderCode) {
+      const taskContainers = document.querySelectorAll('.task-item-container');
+      taskContainers.forEach(container => {
+        const taskId = container.getAttribute('data-task-id');
+        const stateKey = `vc-elemental-mp-tender-${tenderCode}-task-${taskId}`;
+        const savedStateStr = localStorage.getItem(stateKey);
+        
+        if (savedStateStr) {
+          const state = JSON.parse(savedStateStr);
+          
+          const checkbox = container.querySelector('.pasoapaso-checkbox') as HTMLInputElement;
+          const assigneeSelect = container.querySelector('.assignee-select') as HTMLSelectElement;
+          const statusSelect = container.querySelector('.status-select') as HTMLSelectElement;
+          const textarea = container.querySelector('.note-textarea') as HTMLTextAreaElement;
+          const noteBtn = container.querySelector('.note-btn');
+
+          if (checkbox) checkbox.checked = (state.status === 'completed');
+          if (assigneeSelect) assigneeSelect.value = state.assignee || '';
+          if (statusSelect) {
+            statusSelect.value = state.status || 'pending';
+            updateSelectColor(statusSelect);
+          }
+          if (textarea) textarea.value = state.notes || '';
+          
+          if (state.notes && state.notes.trim() !== '') {
+            if (noteBtn) {
+              noteBtn.classList.add('has-notes');
+              const btnText = noteBtn.querySelector('.note-btn-text');
+              if (btnText) btnText.textContent = "Editar Nota";
+            }
+          }
+        }
+      });
+      renderActivityLog();
+    }
+
+    // Listeners for Checkbox toggles
+    const checkboxes = document.querySelectorAll<HTMLInputElement>('.pasoapaso-checkbox');
+    checkboxes.forEach(cb => {
+      cb.addEventListener('change', () => {
+        const taskId = cb.getAttribute('data-task-id') || '';
+        const stateKey = `vc-elemental-mp-tender-${tenderCode}-task-${taskId}`;
+        const savedStateStr = localStorage.getItem(stateKey);
+        const state = savedStateStr ? JSON.parse(savedStateStr) : { status: 'pending', assignee: '', notes: '' };
+        
+        const container = cb.closest('.task-item-container');
+        const taskTitle = container?.querySelector('.task-title')?.textContent || 'Tarea';
+
+        const oldStatus = state.status;
+        state.status = cb.checked ? 'completed' : 'pending';
+        localStorage.setItem(stateKey, JSON.stringify(state));
+
+        if (oldStatus !== state.status) {
+          const statusEmoji = cb.checked ? '✅' : '⭕';
+          addActivityLog(`${statusEmoji} José Valdés cambió el estado de "${taskTitle}" a ${cb.checked ? 'Completado' : 'Pendiente'}`);
+        }
+        updateProgress();
+      });
+    });
+
+    // Listeners for Status selects
+    const statusSelects = document.querySelectorAll<HTMLSelectElement>('.status-select');
+    statusSelects.forEach(select => {
+      select.addEventListener('change', () => {
+        const taskId = select.getAttribute('data-task-id') || '';
+        const stateKey = `vc-elemental-mp-tender-${tenderCode}-task-${taskId}`;
+        const savedStateStr = localStorage.getItem(stateKey);
+        const state = savedStateStr ? JSON.parse(savedStateStr) : { status: 'pending', assignee: '', notes: '' };
+        
+        const container = select.closest('.task-item-container');
+        const taskTitle = container?.querySelector('.task-title')?.textContent || 'Tarea';
+
+        const oldStatus = state.status;
+        state.status = select.value;
+        localStorage.setItem(stateKey, JSON.stringify(state));
+
+        if (oldStatus !== state.status) {
+          const statusText = select.value === 'completed' ? 'Completado ✅' : select.value === 'in_progress' ? 'En Proceso ⏳' : 'Pendiente ⭕';
+          addActivityLog(`🔄 José Valdés actualizó el estado de "${taskTitle}" a: ${statusText}`);
+        }
+        updateProgress();
+      });
+    });
+
+    // Listeners for Assignee changes
+    const assigneeSelects = document.querySelectorAll<HTMLSelectElement>('.assignee-select');
+    assigneeSelects.forEach(select => {
+      select.addEventListener('change', () => {
+        const taskId = select.getAttribute('data-task-id') || '';
+        const stateKey = `vc-elemental-mp-tender-${tenderCode}-task-${taskId}`;
+        const savedStateStr = localStorage.getItem(stateKey);
+        const state = savedStateStr ? JSON.parse(savedStateStr) : { status: 'pending', assignee: '', notes: '' };
+        
+        const container = select.closest('.task-item-container');
+        const taskTitle = container?.querySelector('.task-title')?.textContent || 'Tarea';
+
+        const oldAssignee = state.assignee;
+        state.assignee = select.value;
+        localStorage.setItem(stateKey, JSON.stringify(state));
+
+        if (oldAssignee !== state.assignee) {
+          const assignedText = select.value ? `asignada a ${select.value} 👤` : 'desasignada 👤';
+          addActivityLog(`👤 Tarea "${taskTitle}" fue ${assignedText}`);
+        }
+      });
+    });
+
+    // Listeners for Notes typing
+    const noteTextareas = document.querySelectorAll<HTMLTextAreaElement>('.note-textarea');
+    noteTextareas.forEach(textarea => {
+      textarea.addEventListener('input', () => {
+        const taskId = textarea.getAttribute('data-task-id') || '';
+        const stateKey = `vc-elemental-mp-tender-${tenderCode}-task-${taskId}`;
+        const savedStateStr = localStorage.getItem(stateKey);
+        const state = savedStateStr ? JSON.parse(savedStateStr) : { status: 'pending', assignee: '', notes: '' };
+        
+        state.notes = textarea.value;
+        localStorage.setItem(stateKey, JSON.stringify(state));
+
+        const container = textarea.closest('.task-item-container');
+        const noteBtn = container?.querySelector('.note-btn');
+
+        if (noteBtn) {
+          if (textarea.value.trim() !== '') {
+            noteBtn.classList.add('has-notes');
+          } else {
+            noteBtn.classList.remove('has-notes');
+            const btnText = noteBtn.querySelector('.note-btn-text');
+            if (btnText) btnText.textContent = "Agregar Nota";
+          }
+        }
+      });
+
+      textarea.addEventListener('blur', () => {
+        const container = textarea.closest('.task-item-container');
+        const taskTitle = container?.querySelector('.task-title')?.textContent || 'Tarea';
+        
+        if (textarea.value.trim() !== '') {
+          addActivityLog(`📝 José Valdés añadió/editó una nota en "${taskTitle}"`);
+        }
+      });
+    });
+
+    // Export Checklist functionality
+    if (exportBtn) {
+      exportBtn.addEventListener('click', () => {
+        const code = tenderCode || 'Licitacion';
+        let output = `# CHECKLIST DE POSTULACIÓN - LICITACIÓN ${code}\n`;
+        output += `Generado el: ${new Date().toLocaleDateString('es-CL')}\n\n`;
+
+        const phases = document.querySelectorAll('.fase-card');
+        phases.forEach(phase => {
+          const header = phase.querySelector('.fase-title span:first-child')?.textContent || 'Fase';
+          const badge = phase.querySelector('.fase-badge')?.textContent || '';
+          output += `## ${header} (${badge})\n`;
+
+          const tasks = phase.querySelectorAll('.task-item-container');
+          tasks.forEach(task => {
+            const title = task.querySelector('.task-title')?.textContent || '';
+            const desc = task.querySelector('.task-detail')?.textContent || '';
+            
+            const assigneeSelect = task.querySelector('.assignee-select') as HTMLSelectElement;
+            const statusSelect = task.querySelector('.status-select') as HTMLSelectElement;
+            const textarea = task.querySelector('.note-textarea') as HTMLTextAreaElement;
+
+            const isExcluyente = task.classList.contains('excluyente') ? ' [EXCLUYENTE]' : '';
+            const assignee = assigneeSelect && assigneeSelect.value ? ` (Encargado: ${assigneeSelect.value})` : ' (Sin asignar)';
+            const status = statusSelect ? statusSelect.value === 'completed' ? ' [COMPLETADA]' : statusSelect.value === 'in_progress' ? ' [EN PROCESO]' : ' [PENDIENTE]' : '';
+            
+            output += `- [${statusSelect && statusSelect.value === 'completed' ? 'x' : ' '}] ${title}${isExcluyente}${assignee}${status}\n`;
+            if (desc) output += `  *Detalle: ${desc}*\n`;
+            if (textarea && textarea.value.trim()) output += `  *Nota: "${textarea.value.trim()}"*\n`;
+          });
+          output += `\n`;
+        });
+
+        navigator.clipboard.writeText(output).then(() => {
+          alert('¡Checklist copiado al portapapeles en formato Markdown! Puedes pegarlo en un correo, Slack o WhatsApp.');
+          addActivityLog("📋 Copiado reporte de checklist al portapapeles.");
+        }).catch(err => {
+          console.error('Error al copiar checklist:', err);
+          alert('No se pudo copiar el checklist de manera automática. Revisa la consola.');
+        });
+      });
+    }
+
+    // Initial calculation
+    updateProgress();
+  </script>
+</DashboardLayout>

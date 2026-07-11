@@ -1,0 +1,248 @@
+---
+// Landing / Login page
+---
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>VC Elemental MP — Radar de Licitaciones Inteligente</title>
+  <meta name="description" content="Monitorea licitaciones de Mercado Público con inteligencia artificial. Alertas en tiempo real, score de recomendación y análisis por rubro." />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;900&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #0a0f1e;
+      --surface: #111827;
+      --border: #1f2937;
+      --accent: #3b82f6;
+      --accent2: #8b5cf6;
+      --text: #f1f5f9;
+      --muted: #64748b;
+      --green: #22c55e;
+      --yellow: #eab308;
+      --orange: #f97316;
+      --red: #ef4444;
+    }
+    body {
+      font-family: 'Inter', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+    /* Nav */
+    nav {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 20px 40px;
+      border-bottom: 1px solid var(--border);
+      backdrop-filter: blur(12px);
+      position: sticky; top: 0; z-index: 100;
+      background: rgba(10,15,30,0.8);
+    }
+    .logo { font-size: 22px; font-weight: 900; letter-spacing: -0.5px; }
+    .logo span { background: linear-gradient(135deg, #3b82f6, #8b5cf6); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+    .nav-btn {
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      color: white; border: none; padding: 10px 24px; border-radius: 8px;
+      font-size: 14px; font-weight: 600; cursor: pointer; text-decoration: none;
+      transition: opacity 0.2s;
+    }
+    .nav-btn:hover { opacity: 0.85; }
+
+    /* Hero */
+    .hero {
+      flex: 1; display: flex; flex-direction: column; align-items: center;
+      justify-content: center; text-align: center; padding: 80px 40px;
+      background: radial-gradient(ellipse at 50% 0%, rgba(59,130,246,0.15) 0%, transparent 60%);
+    }
+    .hero-badge {
+      display: inline-flex; align-items: center; gap: 8px;
+      background: rgba(59,130,246,0.1); border: 1px solid rgba(59,130,246,0.3);
+      border-radius: 50px; padding: 6px 16px; font-size: 13px; color: #93c5fd;
+      margin-bottom: 32px;
+    }
+    .hero h1 {
+      font-size: clamp(40px, 6vw, 72px); font-weight: 900; line-height: 1.05;
+      letter-spacing: -2px; margin-bottom: 24px;
+    }
+    .hero h1 span {
+      background: linear-gradient(135deg, #3b82f6, #8b5cf6, #ec4899);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    }
+    .hero p { font-size: 20px; color: var(--muted); max-width: 600px; line-height: 1.6; margin-bottom: 48px; }
+    .hero-cta { display: flex; gap: 16px; flex-wrap: wrap; justify-content: center; }
+    .btn-primary {
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      color: white; text-decoration: none; padding: 16px 36px;
+      border-radius: 12px; font-size: 16px; font-weight: 700;
+      transition: transform 0.2s, box-shadow 0.2s;
+      box-shadow: 0 0 40px rgba(59,130,246,0.3);
+    }
+    .btn-primary:hover { transform: translateY(-2px); box-shadow: 0 0 60px rgba(59,130,246,0.5); }
+    .btn-secondary {
+      border: 1px solid var(--border); color: var(--text); text-decoration: none;
+      padding: 16px 36px; border-radius: 12px; font-size: 16px; font-weight: 600;
+      transition: border-color 0.2s;
+    }
+    .btn-secondary:hover { border-color: var(--accent); }
+
+    /* Score Demo Card */
+    .demo-card {
+      margin: 64px auto 0; max-width: 480px; width: 100%;
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 20px; overflow: hidden;
+      box-shadow: 0 0 80px rgba(59,130,246,0.1);
+    }
+    .demo-header {
+      background: linear-gradient(135deg, rgba(59,130,246,0.2), rgba(139,92,246,0.2));
+      padding: 20px; border-bottom: 1px solid var(--border);
+      display: flex; justify-content: space-between; align-items: center;
+    }
+    .demo-title { font-size: 14px; font-weight: 600; }
+    .demo-score {
+      font-size: 28px; font-weight: 900; color: var(--green);
+    }
+    .demo-body { padding: 20px; }
+    .score-bar { margin-bottom: 14px; }
+    .score-bar-label {
+      display: flex; justify-content: space-between;
+      font-size: 13px; color: var(--muted); margin-bottom: 6px;
+    }
+    .score-bar-label span:last-child { color: var(--text); }
+    .bar-track { height: 6px; background: var(--border); border-radius: 3px; }
+    .bar-fill { height: 6px; border-radius: 3px; transition: width 1s ease; }
+    .bar-green  { background: var(--green); }
+    .bar-yellow { background: var(--yellow); }
+    .bar-blue   { background: var(--accent); }
+    .bar-orange { background: var(--orange); }
+    .ai-note {
+      margin-top: 16px; padding: 12px; background: rgba(139,92,246,0.1);
+      border: 1px solid rgba(139,92,246,0.2); border-radius: 8px;
+      font-size: 12px; color: #c4b5fd; line-height: 1.6;
+    }
+
+    /* Features */
+    .features {
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 24px; padding: 80px 40px; max-width: 1200px; margin: 0 auto; width: 100%;
+    }
+    .feature-card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 16px; padding: 28px;
+      transition: border-color 0.3s, transform 0.3s;
+    }
+    .feature-card:hover { border-color: var(--accent); transform: translateY(-4px); }
+    .feature-icon { font-size: 32px; margin-bottom: 16px; }
+    .feature-card h3 { font-size: 18px; font-weight: 700; margin-bottom: 8px; }
+    .feature-card p { font-size: 14px; color: var(--muted); line-height: 1.6; }
+
+    /* Footer */
+    footer {
+      text-align: center; padding: 32px; border-top: 1px solid var(--border);
+      font-size: 13px; color: var(--muted);
+    }
+  </style>
+</head>
+<body>
+  <nav>
+    <div class="logo">VC Elemental <span>MP</span></div>
+    <a href="/dashboard" class="nav-btn" id="nav-dashboard-btn">Ingresar →</a>
+  </nav>
+
+  <main class="hero">
+    <div class="hero-badge">
+      <span>🤖</span>
+      <span>Impulsado por Gemini IA + Datos de ChileCompra</span>
+    </div>
+
+    <h1>El Radar Inteligente<br>de <span>Licitaciones</span></h1>
+
+    <p>
+      Tu empresa recibe alertas personalizadas de licitaciones de Mercado Público
+      con un <strong>score de recomendación</strong> basado en tu rubro y región.
+      No más ruido — solo oportunidades reales.
+    </p>
+
+    <div class="hero-cta">
+      <a href="/dashboard" class="btn-primary" id="hero-cta-primary">Comenzar gratis →</a>
+      <a href="#features" class="btn-secondary" id="hero-cta-secondary">Ver funciones</a>
+    </div>
+
+    <!-- Demo Score Card -->
+    <div class="demo-card">
+      <div class="demo-header">
+        <div>
+          <div class="demo-title">Suministro de Equipos TI para MINSAL</div>
+          <div style="font-size:12px; color: #64748b; margin-top: 4px;">1067476-19-LE26 · Región Metropolitana</div>
+        </div>
+        <div class="demo-score">🟢 82</div>
+      </div>
+      <div class="demo-body">
+        <div class="score-bar">
+          <div class="score-bar-label"><span>🏭 Rubro (Tecnología)</span><span>40/40 — Coincidencia exacta</span></div>
+          <div class="bar-track"><div class="bar-fill bar-green" style="width:100%"></div></div>
+        </div>
+        <div class="score-bar">
+          <div class="score-bar-label"><span>📍 Región</span><span>20/30 — Región limítrofe</span></div>
+          <div class="bar-track"><div class="bar-fill bar-yellow" style="width:67%"></div></div>
+        </div>
+        <div class="score-bar">
+          <div class="score-bar-label"><span>💰 Presupuesto</span><span>12/20 — Sobre tu rango</span></div>
+          <div class="bar-track"><div class="bar-fill bar-blue" style="width:60%"></div></div>
+        </div>
+        <div class="score-bar">
+          <div class="score-bar-label"><span>⏰ Urgencia</span><span>10/10 — 18 días disponibles</span></div>
+          <div class="bar-track"><div class="bar-fill bar-green" style="width:100%"></div></div>
+        </div>
+        <div class="ai-note">
+          🤖 <strong>VC Elemental IA:</strong> "Alta compatibilidad con tu rubro TI. La RM es accesible
+          desde Valparaíso. El presupuesto de $42M supera tu rango, pero tienes 18 días para
+          preparar una propuesta sólida. Muy recomendada."
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <section id="features">
+    <div class="features">
+      <div class="feature-card">
+        <div class="feature-icon">🎯</div>
+        <h3>Score de Recomendación</h3>
+        <p>Cada licitación recibe un puntaje de 0 a 100 basado en tu rubro, región, presupuesto y tiempo disponible.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">🔔</div>
+        <h3>Alertas en Tiempo Real</h3>
+        <p>Recibe notificaciones por correo electrónico o WhatsApp cuando aparece una licitación que te conviene.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">🤖</div>
+        <h3>Resumen con IA</h3>
+        <p>Gemini analiza cada licitación y te entrega un resumen ejecutivo con los puntos clave y riesgos.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">👥</div>
+        <h3>Multi-usuario</h3>
+        <p>Invita a tu equipo con roles específicos. Cada persona ve solo lo que necesita para su función.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">📍</div>
+        <h3>Filtros por Región</h3>
+        <p>Visualiza licitaciones en el mapa de Chile. Filtra por región, macrozona o distancia desde tu sede.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">📊</div>
+        <h3>Dashboard Centralizado</h3>
+        <p>Todos los procesos de tu empresa en un solo lugar, con calendario de cierres y métricas del mercado.</p>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    © 2026 VC Elemental MP · Impulsado por ChileCompra + Gemini IA · Datos en tiempo real
+  </footer>
+</body>
+</html>

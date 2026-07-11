@@ -1,0 +1,203 @@
+---
+import DashboardLayout from '../../layouts/DashboardLayout.astro';
+import { AVAILABLE_RUBROS } from '../../services/scoring/rubro.scorer';
+import { CHILE_REGIONS } from '../../services/scoring/region.scorer';
+import { db, companies } from '../../db/index';
+
+// Obtener la empresa activa desde PostgreSQL
+const company = (await db.select().from(companies).limit(1))[0] || {
+  name: 'VC Elemental',
+  rut: '76.123.456-K',
+  industry: 'Tecnología',
+  region: 'RM',
+  budgetMin: '0',
+  budgetMax: '0',
+  apiTicket: 'E18620F6-CC83-4690-96FC-CD61DC9FAE8D',
+};
+---
+<DashboardLayout title="Configuración" activeTab="configuracion">
+  <style>
+    .content { padding: 32px; max-width: 800px; }
+    .card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 16px; padding: 24px; margin-bottom: 24px;
+    }
+    .card-title { font-size: 18px; font-weight: 700; margin-bottom: 8px; }
+    .card-desc { font-size: 13px; color: var(--muted); margin-bottom: 20px; }
+
+    .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 20px; }
+    .form-group { margin-bottom: 16px; }
+    .form-group.full { grid-column: span 2; }
+    label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 6px; }
+    .input-text, select {
+      background: var(--surface2); border: 1px solid var(--border); border-radius: 8px;
+      color: var(--text); padding: 10px 12px; font-size: 13px; width: 100%; outline: none;
+      font-family: inherit;
+    }
+    .input-text:focus, select:focus { border-color: var(--accent); }
+    .input-text:disabled { opacity: 0.5; cursor: not-allowed; }
+    
+    .helper-text { font-size: 11px; color: var(--muted); margin-top: 4px; }
+
+    /* Premium Toast */
+    .toast {
+      position: fixed; top: 24px; right: 24px;
+      background: rgba(16, 185, 129, 0.1);
+      border: 1px solid rgba(16, 185, 129, 0.2);
+      color: #10b981;
+      padding: 16px 24px; border-radius: 12px;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+      backdrop-filter: blur(12px);
+      z-index: 1000;
+      display: flex; align-items: center; gap: 10px;
+      transform: translateY(-20px); opacity: 0;
+      pointer-events: none;
+      transition: all 0.3s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+      font-size: 14px; font-weight: 600;
+    }
+    .toast.show {
+      transform: translateY(0); opacity: 1;
+    }
+  </style>
+
+  <div class="topbar">
+    <div class="topbar-left">
+      <h1>⚙️ Configuración de la Empresa</h1>
+      <p>Configura las credenciales y el perfil técnico de tu organización</p>
+    </div>
+  </div>
+
+  <div class="content">
+    <!-- Success Toast -->
+    <div id="success-toast" class="toast">
+      <span>✅</span>
+      <span>¡Perfil y scores de licitaciones actualizados con éxito!</span>
+    </div>
+
+    <!-- General settings -->
+    <div class="card">
+      <div class="card-title">Perfil de la Empresa</div>
+      <div class="card-desc">Información comercial y rubro de operación</div>
+      
+      <div class="form-grid">
+        <div class="form-group">
+          <label for="comp-name">Razón Social</label>
+          <input type="text" id="comp-name" class="input-text" value={company.name} disabled />
+        </div>
+        <div class="form-group">
+          <label for="comp-rut">RUT</label>
+          <input type="text" id="comp-rut" class="input-text" value={company.rut} disabled />
+        </div>
+        
+        <div class="form-group">
+          <label for="comp-industry">Rubro Principal</label>
+          <select id="comp-industry">
+            <option value="Sin rubro específico" selected={company.industry === 'Sin rubro específico'}>Sin rubro específico</option>
+            {AVAILABLE_RUBROS.map(r => (
+              <option value={r} selected={r === company.industry}>{r}</option>
+            ))}
+          </select>
+          <div class="helper-text">Se utiliza para calcular el Score de Rubro en tus licitaciones.</div>
+        </div>
+
+        <div class="form-group">
+          <label for="comp-region">Región Principal</label>
+          <select id="comp-region">
+            <option value="Sin región específica" selected={company.region === 'Sin región específica'}>Sin región específica (Alcance Nacional)</option>
+            {Object.keys(CHILE_REGIONS).map(r => (
+              <option value={r} selected={r === company.region}>Región {r}</option>
+            ))}
+          </select>
+          <div class="helper-text">Se utiliza para calcular el Score de Región/Distancia.</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- API Ticket configuration -->
+    <div class="card">
+      <div class="card-title">Credenciales de Mercado Público</div>
+      <div class="card-desc">Token de la API de ChileCompra para realizar las consultas automatizadas</div>
+
+      <div class="form-group">
+        <label for="comp-ticket">Ticket de API ChileCompra</label>
+        <input type="password" id="comp-ticket" class="input-text" value={company.apiTicket} placeholder="Ingresa tu ticket de la API..." style="font-family:monospace" />
+        <div class="helper-text">Tu ticket maestro de Mercado Público. Se guardará de forma completamente encriptada en nuestra base de datos.</div>
+      </div>
+    </div>
+
+    <!-- Operating limits configuration -->
+    <div class="card">
+      <div class="card-title">Rango de Operación (Monto)</div>
+      <div class="card-desc">Define el monto mínimo y máximo en pesos (CLP) que tu empresa puede asumir en licitaciones</div>
+
+      <div class="form-grid">
+        <div class="form-group">
+          <label for="comp-budget-min">Monto Mínimo (CLP)</label>
+          <input type="number" id="comp-budget-min" class="input-text" value={company.budgetMin ?? '0'} />
+          <div class="helper-text">Licitaciones bajo este monto tendrán penalización en el Score de Presupuesto. Usa 0 para sin límite mínimo.</div>
+        </div>
+
+        <div class="form-group">
+          <label for="comp-budget-max">Monto Máximo (CLP)</label>
+          <input type="number" id="comp-budget-max" class="input-text" value={company.budgetMax ?? '0'} />
+          <div class="helper-text">Licitaciones sobre el 150% de este monto serán penalizadas en el Score. Usa 0 para sin límite máximo.</div>
+        </div>
+      </div>
+    </div>
+
+    <div style="text-align: right;">
+      <button class="btn-sm btn-primary" id="btn-save-config" style="padding: 12px 28px; font-size:14px">Guardar Cambios</button>
+    </div>
+  </div>
+
+  <script>
+    const saveBtn = document.getElementById('btn-save-config');
+    const toast = document.getElementById('success-toast');
+
+    if (saveBtn) {
+      saveBtn.addEventListener('click', async () => {
+        const industry = document.getElementById('comp-industry').value;
+        const region = document.getElementById('comp-region').value;
+        const apiTicket = document.getElementById('comp-ticket').value;
+        const budgetMin = document.getElementById('comp-budget-min').value;
+        const budgetMax = document.getElementById('comp-budget-max').value;
+
+        // Visual loading state
+        const originalHtml = saveBtn.innerHTML;
+        saveBtn.innerHTML = '⏳ Guardando...';
+        saveBtn.disabled = true;
+
+        try {
+          const res = await fetch('/api/company/config', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              industry,
+              region,
+              apiTicket,
+              budgetMin,
+              budgetMax
+            })
+          });
+
+          if (res.ok) {
+            // Show toast
+            if (toast) {
+              toast.classList.add('show');
+              setTimeout(() => {
+                toast.classList.remove('show');
+              }, 3000);
+            }
+          } else {
+            console.error('[Config Save Error] Non-ok response');
+          }
+        } catch (err) {
+          console.error('[Config Save Error] Network error:', err);
+        } finally {
+          saveBtn.innerHTML = originalHtml;
+          saveBtn.disabled = false;
+        }
+      });
+    }
+  </script>
+</DashboardLayout>

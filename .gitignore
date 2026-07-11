@@ -1,0 +1,27 @@
+# Env - NUNCA subir al repo
+.env
+.env.local
+.env.production
+
+# Node
+node_modules/
+dist/
+.output/
+
+# Astro
+.astro/
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# DB
+*.sqlite
+
+# Vercel
+.vercel/
+
