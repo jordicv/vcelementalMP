@@ -26,71 +26,81 @@ function cleanRegionName(regionStr: string | null): string {
   return clean;
 }
 
-// 1. Obtener la empresa activa para mapear etiquetas personalizadas y rubro de cálculo
-const company = (await db.select().from(companies).limit(1))[0] || { industry: '', region: '' };
+let company = { id: '', name: 'VC Elemental', industry: 'Sin rubro específico', region: 'Sin región específica', apiTicket: '' };
+let mockTenders: any[] = [];
+let regionsList: string[] = [];
+let errorMsg = '';
 
-// 2. Obtener todas las licitaciones desde PostgreSQL usando Drizzle ORM
-const liveTenders = await db
-  .select()
-  .from(tenders)
-  .orderBy(desc(tenders.scoreTotalVal));
-
-// Mapear los datos de la base de datos al formato visual
-const mockTenders = liveTenders.map(t => {
-  const budgetVal = t.budget ? parseFloat(t.budget) : 0;
-  
-  const isNoIndustry = company.industry === 'Sin rubro específico';
-  const isNoRegion = company.region === 'Sin región específica';
-
-  // Clasificar rubro de la licitación de forma dinámica para filtrar en la UI
-  const text = `${t.title} ${t.aiSummary || ''}`.toLowerCase();
-  let detectedIndustry = 'Otros';
-  let maxMatches = 0;
-
-  for (const [indName, keywords] of Object.entries(RUBRO_KEYWORDS)) {
-    const matches = keywords.filter(k => text.includes(k.toLowerCase())).length;
-    if (matches > maxMatches) {
-      maxMatches = matches;
-      detectedIndustry = indName;
-    }
+try {
+  const compList = await db.select().from(companies).limit(1);
+  if (compList.length > 0) {
+    company = compList[0] as any;
   }
+  
+  const liveTenders = await db
+    .select()
+    .from(tenders)
+    .orderBy(desc(tenders.scoreTotalVal));
 
-  const closeDateObj = t.closeDate || new Date(Date.now() + 10 * 86400000);
-  const daysVal = Math.floor((closeDateObj.getTime() - Date.now()) / 86400000);
-  const isClosed = t.status === 'Cerrada' || t.status === 'Adjudicada' || daysVal <= 0;
-  const computedStatus = isClosed ? 'Cerrada' : (t.status || 'Publicada');
+  mockTenders = liveTenders.map(t => {
+    const budgetVal = t.budget ? parseFloat(t.budget) : 0;
+    const isNoIndustry = company.industry === 'Sin rubro específico';
+    const isNoRegion = company.region === 'Sin región específica';
 
-  // Mapeamos los desgloses guardados para la UI
-  return {
-    id:           t.id,
-    externalCode: t.externalCode,
-    title:        t.title,
-    status:       computedStatus,
-    budget:       budgetVal,
-    currency:     t.currency || 'CLP', // Leemos la moneda original de la DB
-    closeDate:    closeDateObj,
-    buyerName:    t.buyerName || 'Organismo Público',
-    buyerRegion:  t.buyerRegion || 'Región Metropolitana',
-    buyerCommune: t.buyerCommune || null,
-    scoreTotal:   t.scoreTotalVal ?? 0,
-    scoreRubro:   t.scoreRubro ?? 0,
-    scoreRegion:  t.scoreRegion ?? 0,
-    scoreBudget:  t.scoreBudget ?? 0,
-    scoreUrgency: t.scoreUrgency ?? 0,
-    scoreLabel:   t.scoreLabel || 'Evaluar',
-    detectedIndustry: detectedIndustry, // Guardamos la clasificación
-    rubroLabel:   isNoIndustry ? 'Evaluación neutral (Sin rubro)' : (t.scoreRubro && t.scoreRubro >= 40 ? 'Coincidencia exacta' : t.scoreRubro && t.scoreRubro >= 25 ? 'Rubro relacionado' : 'Sin relación'),
-    regionLabel:  isNoRegion ? 'Alcance nacional (Sin región)' : (t.scoreRegion && t.scoreRegion >= 30 ? 'Misma región' : t.scoreRegion && t.scoreRegion >= 20 ? 'Región limítrofe' : 'Macrozona o lejana'),
-    budgetLabel:  t.scoreBudget && t.scoreBudget >= 20 ? 'Rango ideal' : t.scoreBudget && t.scoreBudget >= 12 ? 'Sobre el rango' : 'Fuera de rango',
-    urgencyLabel: t.scoreUrgency && t.scoreUrgency >= 10 ? 'Tiempo cómodo' : t.scoreUrgency && t.scoreUrgency >= 7 ? 'Plazo ajustado' : 'Urgente',
-    aiSummary:    t.aiSummary || 'Monitoreo de recomendación IA activo para este rubro. Haz clic para ver el desglose.',
-    normalizedRegion: cleanRegionName(t.buyerRegion),
-  };
-});
+    // Clasificar rubro de la licitación de forma dinámica para filtrar en la UI
+    const text = `${t.title} ${t.aiSummary || ''}`.toLowerCase();
+    let detectedIndustry = 'Otros';
+    let maxMatches = 0;
 
-const regionsList = Array.from(new Set(mockTenders.map(t => t.normalizedRegion)))
-  .filter(r => r !== 'No especificada')
-  .sort();
+    for (const [indName, keywords] of Object.entries(RUBRO_KEYWORDS)) {
+      const matches = keywords.filter(k => text.includes(k.toLowerCase())).length;
+      if (matches > maxMatches) {
+        maxMatches = matches;
+        detectedIndustry = indName;
+      }
+    }
+
+    const closeDateObj = t.closeDate || new Date(Date.now() + 10 * 86400000);
+    const daysVal = Math.floor((closeDateObj.getTime() - Date.now()) / 86400000);
+    const isClosed = t.status === 'Cerrada' || t.status === 'Adjudicada' || daysVal <= 0;
+    const computedStatus = isClosed ? 'Cerrada' : (t.status || 'Publicada');
+
+    // Mapeamos los desgloses guardados para la UI
+    return {
+      id:           t.id,
+      externalCode: t.externalCode,
+      title:        t.title,
+      status:       computedStatus,
+      budget:       budgetVal,
+      currency:     t.currency || 'CLP', // Leemos la moneda original de la DB
+      closeDate:    closeDateObj,
+      buyerName:    t.buyerName || 'Organismo Público',
+      buyerRegion:  t.buyerRegion || 'Región Metropolitana',
+      buyerCommune: t.buyerCommune || null,
+      scoreTotal:   t.scoreTotalVal ?? 0,
+      scoreRubro:   t.scoreRubro ?? 0,
+      scoreRegion:  t.scoreRegion ?? 0,
+      scoreBudget:  t.scoreBudget ?? 0,
+      scoreUrgency: t.scoreUrgency ?? 0,
+      scoreLabel:   t.scoreLabel || 'Evaluar',
+      detectedIndustry: detectedIndustry, // Guardamos la clasificación
+      rubroLabel:   isNoIndustry ? 'Evaluación neutral (Sin rubro)' : (t.scoreRubro && t.scoreRubro >= 40 ? 'Coincidencia exacta' : t.scoreRubro && t.scoreRubro >= 25 ? 'Rubro relacionado' : 'Sin relación'),
+      regionLabel:  isNoRegion ? 'Alcance nacional (Sin región)' : (t.scoreRegion && t.scoreRegion >= 30 ? 'Misma región' : t.scoreRegion && t.scoreRegion >= 20 ? 'Región limítrofe' : 'Macrozona o lejana'),
+      budgetLabel:  t.scoreBudget && t.scoreBudget >= 20 ? 'Rango ideal' : t.scoreBudget && t.scoreBudget >= 12 ? 'Sobre el rango' : 'Fuera de rango',
+      urgencyLabel: t.scoreUrgency && t.scoreUrgency >= 10 ? 'Tiempo cómodo' : t.scoreUrgency && t.scoreUrgency >= 7 ? 'Plazo ajustado' : 'Urgente',
+      aiSummary:    t.aiSummary || 'Monitoreo de recomendación IA activo para este rubro. Haz clic para ver el desglose.',
+      normalizedRegion: cleanRegionName(t.buyerRegion),
+    };
+  });
+
+  regionsList = Array.from(new Set(mockTenders.map(t => t.normalizedRegion)))
+    .filter(r => r !== 'No especificada')
+    .sort();
+
+} catch (err: any) {
+  console.error('[Dashboard Frontmatter Connection Error]:', err.message);
+  errorMsg = `No se pudo conectar a la base de datos PostgreSQL. Mensaje de error: ${err.message}. Asegúrate de haber configurado la variable de entorno DATABASE_URL en Vercel con la cadena de conexión correcta de Supabase.`;
+}
 
 const kpis = {
   total: mockTenders.length,
@@ -99,7 +109,7 @@ const kpis = {
     const days = Math.floor((t.closeDate.getTime() - Date.now()) / 86400000);
     return days <= 7;
   }).length,
-  avgScore: Math.round(mockTenders.reduce((a, t) => a + t.scoreTotal, 0) / mockTenders.length),
+  avgScore: mockTenders.length > 0 ? Math.round(mockTenders.reduce((a, t) => a + t.scoreTotal, 0) / mockTenders.length) : 0,
 };
 
 function formatBudget(budget: number, currency: string) {
@@ -309,6 +319,13 @@ function scoreEmoji(score: number) {
       <div id="sync-progress-text" style="display: none; font-size: 11px; color: var(--muted); margin-top: -4px;">Conectando...</div>
     </div>
   </div>
+
+  {errorMsg && (
+    <div style="background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.3); color: var(--red); padding: 16px 24px; border-radius: 8px; margin: 0 32px 24px; font-weight: 600; font-size: 14px; line-height: 1.5; display: flex; align-items: center; gap: 12px; box-shadow: 0 4px 12px rgba(239,68,68,0.15); border-left: 4px solid var(--red);">
+      <span style="font-size: 20px;">⚠️</span>
+      <div>{errorMsg}</div>
+    </div>
+  )}
 
   <!-- KPIs -->
   <div class="kpis">
