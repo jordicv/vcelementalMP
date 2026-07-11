@@ -413,8 +413,8 @@ function scoreEmoji(score: number) {
       </div>
     </div>
 
-    <!-- Barra de paginación superior (siempre visible) -->
-    <div id="pagination-top" style="display: flex; justify-content: space-between; align-items: center; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 10px 18px; margin-bottom: 16px; gap: 12px;">
+    <!-- Barra de paginación sticky (siempre visible al hacer scroll) -->
+    <div id="pagination-top" style="display: flex; justify-content: space-between; align-items: center; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 10px 18px; margin-bottom: 16px; gap: 12px; position: sticky; top: 0; z-index: 20; backdrop-filter: blur(12px); box-shadow: 0 2px 12px rgba(0,0,0,0.3);">
       <button id="btn-page-prev-top" style="padding: 6px 16px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface2); color: var(--text); font-size: 13px; font-weight: 600; cursor: pointer;">◀ Anterior</button>
       <span id="page-info-top" style="font-size: 13px; color: var(--muted); font-weight: 600;">Cargando...</span>
       <button id="btn-page-next-top" style="padding: 6px 16px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface2); color: var(--text); font-size: 13px; font-weight: 600; cursor: pointer;">Siguiente ▶</button>
