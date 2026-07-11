@@ -413,6 +413,13 @@ function scoreEmoji(score: number) {
       </div>
     </div>
 
+    <!-- Barra de paginación superior (siempre visible) -->
+    <div id="pagination-top" style="display: flex; justify-content: space-between; align-items: center; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 10px 18px; margin-bottom: 16px; gap: 12px;">
+      <button id="btn-page-prev-top" style="padding: 6px 16px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface2); color: var(--text); font-size: 13px; font-weight: 600; cursor: pointer;">◀ Anterior</button>
+      <span id="page-info-top" style="font-size: 13px; color: var(--muted); font-weight: 600;">Cargando...</span>
+      <button id="btn-page-next-top" style="padding: 6px 16px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface2); color: var(--text); font-size: 13px; font-weight: 600; cursor: pointer;">Siguiente ▶</button>
+    </div>
+
     <!-- Tender List -->
     <div class="tender-list" id="tender-list">
       {mockTenders.map(t => {
@@ -516,6 +523,28 @@ function scoreEmoji(score: number) {
     const btnPrev = document.getElementById('btn-page-prev') as HTMLButtonElement | null;
     const btnNext = document.getElementById('btn-page-next') as HTMLButtonElement | null;
     const pageInfo = document.getElementById('page-info');
+    const btnPrevTop = document.getElementById('btn-page-prev-top') as HTMLButtonElement | null;
+    const btnNextTop = document.getElementById('btn-page-next-top') as HTMLButtonElement | null;
+    const pageInfoTop = document.getElementById('page-info-top');
+
+    function updatePaginationUI() {
+      const infoText = `Página ${currentPage} de ${totalPages}`;
+      if (pageInfo) pageInfo.innerText = `Página ${currentPage} de ${totalPages}`;
+      if (pageInfoTop) pageInfoTop.innerText = infoText;
+
+      [btnPrev, btnPrevTop].forEach(btn => {
+        if (!btn) return;
+        btn.disabled = currentPage === 1;
+        btn.style.opacity = currentPage === 1 ? '0.4' : '1';
+        btn.style.cursor = currentPage === 1 ? 'not-allowed' : 'pointer';
+      });
+      [btnNext, btnNextTop].forEach(btn => {
+        if (!btn) return;
+        btn.disabled = currentPage === totalPages;
+        btn.style.opacity = currentPage === totalPages ? '0.4' : '1';
+        btn.style.cursor = currentPage === totalPages ? 'not-allowed' : 'pointer';
+      });
+    }
 
     // Combined filtering function
     function applyFilters(resetPage = true) {
@@ -571,8 +600,9 @@ function scoreEmoji(score: number) {
 
           // Apply combined visibility with pagination slicing
           if (matchesQuery && matchesRegion && matchesCategory && matchesStatus && matchesScoreToggle && matchesTab) {
+            // Increment BEFORE range check so page slicing is correct
             if (matchedCount >= startIdx && matchedCount < endIdx) {
-              card.style.display = 'grid'; // Utiliza el layout de grid del CSS original
+              card.style.display = ''; // Let CSS control the display (grid defined in .tender-card)
             } else {
               card.style.display = 'none';
             }
@@ -584,20 +614,10 @@ function scoreEmoji(score: number) {
 
         // Update pagination UI
         totalPages = Math.ceil(matchedCount / PAGE_SIZE) || 1;
-        if (pageInfo) {
-          pageInfo.innerText = `Página ${currentPage} de ${totalPages} (${matchedCount} encontradas)`;
-        }
-
-        if (btnPrev) {
-          btnPrev.disabled = currentPage === 1;
-          btnPrev.style.opacity = currentPage === 1 ? '0.4' : '1';
-          btnPrev.style.pointerEvents = currentPage === 1 ? 'none' : 'auto';
-        }
-        if (btnNext) {
-          btnNext.disabled = currentPage === totalPages;
-          btnNext.style.opacity = currentPage === totalPages ? '0.4' : '1';
-          btnNext.style.pointerEvents = currentPage === totalPages ? 'none' : 'auto';
-        }
+        const infoText = `Página ${currentPage} de ${totalPages}  ·  ${matchedCount} licitaciones`;
+        if (pageInfo) pageInfo.innerText = infoText;
+        if (pageInfoTop) pageInfoTop.innerText = infoText;
+        updatePaginationUI();
 
       } catch (err) {
         console.error('[VC Elemental MP Error] Fallo en applyFilters:', err);
@@ -741,33 +761,30 @@ function scoreEmoji(score: number) {
     });
 
     // Controladores de navegación de página
-    const scrollContainer = document.getElementById('tender-list');
-    
-    if (btnPrev) {
-      btnPrev.addEventListener('click', (e) => {
-        e.preventDefault();
-        if (currentPage > 1) {
-          currentPage--;
-          applyFilters(false);
-          if (scrollContainer) {
-            scrollContainer.scrollIntoView({ behavior: 'smooth', block: 'start' });
-          }
-        }
-      });
+    const scrollContainer = document.getElementById('pagination-top');
+
+    function goToPrevPage(e: Event) {
+      e.preventDefault();
+      if (currentPage > 1) {
+        currentPage--;
+        applyFilters(false);
+        if (scrollContainer) scrollContainer.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
     }
 
-    if (btnNext) {
-      btnNext.addEventListener('click', (e) => {
-        e.preventDefault();
-        if (currentPage < totalPages) {
-          currentPage++;
-          applyFilters(false);
-          if (scrollContainer) {
-            scrollContainer.scrollIntoView({ behavior: 'smooth', block: 'start' });
-          }
-        }
-      });
+    function goToNextPage(e: Event) {
+      e.preventDefault();
+      if (currentPage < totalPages) {
+        currentPage++;
+        applyFilters(false);
+        if (scrollContainer) scrollContainer.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
     }
+
+    if (btnPrev) btnPrev.addEventListener('click', goToPrevPage);
+    if (btnPrevTop) btnPrevTop.addEventListener('click', goToPrevPage);
+    if (btnNext) btnNext.addEventListener('click', goToNextPage);
+    if (btnNextTop) btnNextTop.addEventListener('click', goToNextPage);
 
     // Initial run
     applyFilters();
