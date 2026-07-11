@@ -37,8 +37,17 @@ export const users = pgTable('users', {
   phone:      text('phone'),               // Para alertas WhatsApp: +56912345678
   role:       userRoleEnum('role').notNull().default('viewer'),
   isActive:   boolean('is_active').notNull().default(true),
+  passwordHash: text('password_hash'), // Hash de la contraseña de acceso
   lastLogin:  timestamp('last_login'),
   createdAt:  timestamp('created_at').defaultNow(),
+});
+
+// ─── Sesiones Activas ──────────────────────────────────────────────
+export const sessions = pgTable('sessions', {
+  id:        text('id').primaryKey(), // Token criptográfico (UUID)
+  userId:    uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  expiresAt: timestamp('expires_at').notNull(),
+  createdAt: timestamp('created_at').defaultNow(),
 });
 
 // ─── Licitaciones cacheadas por empresa ───────────────────────────

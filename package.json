@@ -25,6 +25,7 @@
     "@astrojs/vercel": "^11.0.2",
     "@google/genai": "^2.10.0",
     "astro": "^7.0.6",
+    "bcryptjs": "^3.0.3",
     "bullmq": "^5.79.2",
     "dotenv": "^17.4.2",
     "drizzle-kit": "^0.31.10",
@@ -41,6 +42,7 @@
   },
   "devDependencies": {
     "@astrojs/check": "^0.9.9",
+    "@types/bcryptjs": "^2.4.6",
     "typescript": "^6.0.3"
   }
 }

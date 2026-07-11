@@ -5,6 +5,12 @@ interface Props {
 }
 
 const { title, activeTab } = Astro.props;
+const { user, company } = Astro.locals;
+
+const userName = user?.name || 'Usuario';
+const userRole = user?.role ? (user.role === 'owner' ? 'Owner' : user.role === 'admin' ? 'Admin' : user.role === 'analyst' ? 'Analyst' : 'Viewer') : 'Visualizador';
+const companyName = company?.name || 'VC Elemental';
+const userInitial = userName.trim().split(/\s+/).map(p => p[0]).join('').substring(0, 2).toUpperCase() || 'US';
 ---
 <!DOCTYPE html>
 <html lang="es">
@@ -119,14 +125,17 @@ const { title, activeTab } = Astro.props;
         </p>
       </div>
     </nav>
-    <div class="sidebar-footer">
+    <div class="sidebar-footer" style="display: flex; flex-direction: column; gap: 8px;">
       <div class="user-chip">
-        <div class="user-avatar">JV</div>
+        <div class="user-avatar">{userInitial}</div>
         <div class="user-info">
-          <div class="user-name">José Valdés</div>
-          <div class="user-role">Owner · VC Elemental</div>
+          <div class="user-name">{userName}</div>
+          <div class="user-role">{userRole} · {companyName}</div>
         </div>
       </div>
+      <a href="/logout" class="nav-item" style="margin-top: 4px; background: rgba(239, 68, 68, 0.05); color: var(--red); border: 1px solid rgba(239, 68, 68, 0.15); display: flex; align-items: center; justify-content: center; font-weight: 600;">
+        🚪 Cerrar Sesión
+      </a>
     </div>
   </aside>
 

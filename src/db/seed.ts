@@ -2,6 +2,7 @@ import 'dotenv/config';
 import { db, companies, users, tenders } from './index';
 import { ingestionQueue } from '../workers/ingestion.worker';
 import { calculateScore } from '../services/scoring/index';
+import bcrypt from 'bcryptjs';
 
 async function seed() {
   console.log('[Seed] Sembrando datos iniciales...');
@@ -32,6 +33,7 @@ async function seed() {
   console.log('[Seed] Empresa activa:', activeCompany.name, 'ID:', activeCompany.id);
 
   // 2. Crear usuario administrador
+  const passwordHash = bcrypt.hashSync('Jose.Valdes1', 10);
   const [user] = await db
     .insert(users)
     .values({
@@ -40,8 +42,14 @@ async function seed() {
       name:      'José Valdés',
       role:      'owner',
       phone:     '+56912345678',
+      passwordHash: passwordHash,
     })
-    .onConflictDoNothing()
+    .onConflictDoUpdate({
+      target: users.email,
+      set: {
+        passwordHash: passwordHash,
+      }
+    })
     .returning();
 
   console.log('[Seed] Usuario activo:', user ? user.name : 'Ya existe');

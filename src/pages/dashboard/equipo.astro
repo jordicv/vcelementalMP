@@ -1,13 +1,71 @@
 ---
 import DashboardLayout from '../../layouts/DashboardLayout.astro';
+import { db, users } from '../../db';
+import { eq } from 'drizzle-orm';
+import bcrypt from 'bcryptjs';
 
-// Datos de miembros mock
-const mockTeam = [
-  { name: 'José Valdés', email: 'jose@vcelemental.cl', role: 'Owner', status: 'Activo', initial: 'JV' },
-  { name: 'Teddy Summarize', email: 'teddy@vcelemental.cl', role: 'Admin', status: 'Activo', initial: 'TS' },
-  { name: 'Ignacio Carrasco', email: 'ignacio@vcelemental.cl', role: 'Analyst', status: 'Activo', initial: 'IC' },
-  { name: 'Camila Rojas', email: 'camila@vcelemental.cl', role: 'Viewer', status: 'Invitación Pendiente', initial: 'CR' },
-];
+const { user: currentUser, company } = Astro.locals;
+
+if (!currentUser || !company) {
+  return Astro.redirect('/login');
+}
+
+let errorMsg = '';
+let successMsg = '';
+
+// Procesar el registro de nuevo usuario
+if (Astro.request.method === 'POST') {
+  try {
+    const formData = await Astro.request.formData();
+    const name = formData.get('name')?.toString().trim() || '';
+    const email = formData.get('email')?.toString().toLowerCase().trim() || '';
+    const password = formData.get('password')?.toString() || '';
+    const role = formData.get('role')?.toString() || 'viewer';
+
+    if (!name || !email || !password) {
+      errorMsg = 'Por favor, completa todos los campos.';
+    } else {
+      // Verificar si el correo ya existe
+      const existingUser = await db.select().from(users).where(eq(users.email, email)).limit(1);
+      
+      if (existingUser.length > 0) {
+        errorMsg = `El correo ${email} ya está registrado en la organización.`;
+      } else {
+        // Encriptar contraseña y registrar
+        const passwordHash = bcrypt.hashSync(password, 10);
+
+        await db.insert(users).values({
+          companyId:    company.id,
+          email:        email,
+          name:         name,
+          passwordHash: passwordHash,
+          role:         role as any,
+          isActive:     true,
+        });
+
+        successMsg = `¡Miembro ${name} registrado con éxito!`;
+      }
+    }
+  } catch (err: any) {
+    console.error('[Create Member Error]:', err);
+    errorMsg = `Error al registrar miembro: ${err.message || 'Inténtalo de nuevo.'}`;
+  }
+}
+
+// Obtener los miembros reales de la organización
+const teamList = await db
+  .select()
+  .from(users)
+  .where(eq(users.companyId, company.id));
+
+// Helper para obtener iniciales
+function getInitials(nameStr: string): string {
+  const parts = nameStr.trim().split(/\s+/);
+  if (parts.length >= 2) {
+    return (parts[0][0] + parts[1][0]).toUpperCase();
+  }
+  return nameStr.substring(0, 2).toUpperCase();
+}
 ---
 <DashboardLayout title="Equipo" activeTab="equipo">
   <style>
@@ -108,21 +166,36 @@ const mockTeam = [
       <div class="card-desc">Miembros con acceso a este panel y licitaciones</div>
       
       <div class="team-list">
-        {mockTeam.map(member => {
-          const roleClass = member.role === 'Owner' ? 'role-owner' : member.role === 'Admin' ? 'role-admin' : member.role === 'Analyst' ? 'role-analyst' : 'role-viewer';
-          const statusClass = member.status === 'Activo' ? 'status-active' : 'status-pending';
+        {teamList.map(member => {
+          const roleLabels: Record<string, string> = {
+            owner: 'Owner',
+            admin: 'Admin',
+            analyst: 'Analyst',
+            viewer: 'Viewer'
+          };
+          const roleClasses: Record<string, string> = {
+            owner: 'role-owner',
+            admin: 'role-admin',
+            analyst: 'role-analyst',
+            viewer: 'role-viewer'
+          };
+          const roleLabel = roleLabels[member.role] || member.role;
+          const roleClass = roleClasses[member.role] || 'role-viewer';
+          const statusText = member.isActive ? 'Activo' : 'Inactivo';
+          const statusClass = member.isActive ? 'status-active' : 'status-pending';
+          const initials = getInitials(member.name);
           return (
             <div class="team-member">
               <div class="member-info">
-                <div class="member-avatar">{member.initial}</div>
+                <div class="member-avatar">{initials}</div>
                 <div>
                   <div class="member-name">{member.name}</div>
                   <div class="member-email">{member.email}</div>
                 </div>
               </div>
               <div class="member-meta">
-                <span class={`status-badge ${statusClass}`}>{member.status}</span>
-                <span class={`role-badge ${roleClass}`}>{member.role}</span>
+                <span class={`status-badge ${statusClass}`}>{statusText}</span>
+                <span class={`role-badge ${roleClass}`}>{roleLabel}</span>
               </div>
             </div>
           );
@@ -130,72 +203,49 @@ const mockTeam = [
       </div>
     </div>
 
-    <!-- Invite -->
+    <!-- Invite/Register -->
     <div class="card" style="height: fit-content;">
-      <div class="card-title">Invitar Nuevo Miembro</div>
-      <div class="card-desc">El usuario recibirá un correo para unirse</div>
+      <div class="card-title">Registrar Nuevo Miembro</div>
+      <div class="card-desc">Crea un usuario para dar acceso al panel</div>
 
-      <div class="form-group">
-        <label for="invite-name">Nombre Completo</label>
-        <input type="text" id="invite-name" class="input-text" placeholder="Ej: Juan Pérez" />
-      </div>
+      {errorMsg && (
+        <div style="background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.2); color: var(--red); padding: 12px; border-radius: 8px; margin-bottom: 16px; font-size: 13px; font-weight: 500;">
+          ⚠️ {errorMsg}
+        </div>
+      )}
+      {successMsg && (
+        <div style="background: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.2); color: #10b981; padding: 12px; border-radius: 8px; margin-bottom: 16px; font-size: 13px; font-weight: 500;">
+          ✅ {successMsg}
+        </div>
+      )}
 
-      <div class="form-group">
-        <label for="invite-email">Correo Electrónico</label>
-        <input type="email" id="invite-email" class="input-text" placeholder="juan@empresa.com" />
-      </div>
+      <form method="POST">
+        <div class="form-group">
+          <label for="invite-name">Nombre Completo</label>
+          <input type="text" name="name" id="invite-name" class="input-text" placeholder="Ej: Juan Pérez" required />
+        </div>
 
-      <div class="form-group">
-        <label for="invite-role">Rol asignado</label>
-        <select id="invite-role">
-          <option value="viewer">Viewer (Solo lectura)</option>
-          <option value="analyst">Analyst (Ve y config. alertas)</option>
-          <option value="admin">Admin (Gestión completa de equipo)</option>
-        </select>
-      </div>
+        <div class="form-group">
+          <label for="invite-email">Correo Electrónico</label>
+          <input type="email" name="email" id="invite-email" class="input-text" placeholder="juan@vcelemental.cl" required />
+        </div>
 
-      <button class="btn-invite" id="btn-send-invite">Enviar Invitación</button>
+        <div class="form-group">
+          <label for="invite-password">Contraseña de Acceso</label>
+          <input type="password" name="password" id="invite-password" class="input-text" placeholder="Mínimo 6 caracteres" required />
+        </div>
+
+        <div class="form-group">
+          <label for="invite-role">Rol asignado</label>
+          <select name="role" id="invite-role">
+            <option value="viewer">Viewer (Solo lectura)</option>
+            <option value="analyst">Analyst (Ve y config. alertas)</option>
+            <option value="admin">Admin (Gestión completa de equipo)</option>
+          </select>
+        </div>
+
+        <button type="submit" class="btn-invite" id="btn-send-invite">Registrar Miembro</button>
+      </form>
     </div>
   </div>
-
-  <script>
-    const inviteBtn = document.getElementById('btn-send-invite');
-    const toast = document.getElementById('success-toast');
-    const toastText = document.getElementById('toast-text');
-
-    if (inviteBtn) {
-      inviteBtn.addEventListener('click', () => {
-        const nameInput = document.getElementById('invite-name');
-        const emailInput = document.getElementById('invite-email');
-        const email = emailInput ? emailInput.value.trim() : '';
-
-        if (!email) {
-          // Toast rojo de error
-          if (toast && toastText) {
-            toast.style.background = 'rgba(239, 68, 68, 0.1)';
-            toast.style.borderColor = 'rgba(239, 68, 68, 0.2)';
-            toast.style.color = '#ef4444';
-            toast.innerHTML = '<span>❌</span><span>Por favor introduce un correo válido</span>';
-            toast.classList.add('show');
-            setTimeout(() => toast.classList.remove('show'), 3000);
-          }
-          return;
-        }
-
-        // Mostrar toast verde de éxito
-        if (toast && toastText) {
-          toast.style.background = 'rgba(16, 185, 129, 0.1)';
-          toast.style.borderColor = 'rgba(16, 185, 129, 0.2)';
-          toast.style.color = '#10b981';
-          toast.innerHTML = `<span>✉️</span><span>¡Invitación enviada con éxito a ${email}!</span>`;
-          toast.classList.add('show');
-          setTimeout(() => toast.classList.remove('show'), 3000);
-        }
-
-        // Limpiar inputs
-        if (nameInput) nameInput.value = '';
-        if (emailInput) emailInput.value = '';
-      });
-    }
-  </script>
 </DashboardLayout>

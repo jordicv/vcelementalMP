@@ -1,0 +1,21 @@
+---
+import { db, sessions } from '../db';
+import { eq } from 'drizzle-orm';
+
+const sessionToken = Astro.cookies.get('session_token')?.value;
+
+if (sessionToken) {
+  try {
+    // Eliminar la sesión de la base de datos
+    await db.delete(sessions).where(eq(sessions.id, sessionToken));
+  } catch (err) {
+    console.error('[Logout Error]:', err);
+  }
+}
+
+// Borrar la cookie
+Astro.cookies.delete('session_token', { path: '/' });
+
+// Redirigir a login
+return Astro.redirect('/login');
+---
