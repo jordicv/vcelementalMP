@@ -73,6 +73,7 @@ try {
       status:       computedStatus,
       budget:       budgetVal,
       currency:     t.currency || 'CLP', // Leemos la moneda original de la DB
+      publishDate:  (t.rawData as any)?.FechaPublicacion ? new Date((t.rawData as any).FechaPublicacion) : (t.createdAt || new Date()),
       closeDate:    closeDateObj,
       buyerName:    t.buyerName || 'Organismo Público',
       buyerRegion:  t.buyerRegion || 'Región Metropolitana',
@@ -139,6 +140,17 @@ function formatBudget(budget: number, currency: string) {
   }
 
   return `${budget.toLocaleString('es-CL')} ${currency}`;
+}
+
+function formatDate(date: any) {
+  if (!date) return 'No especificada';
+  const d = new Date(date);
+  if (isNaN(d.getTime())) return 'No especificada';
+  return d.toLocaleDateString('es-CL', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric'
+  });
 }
 
 function daysLeft(date: Date) {
@@ -427,7 +439,14 @@ function scoreEmoji(score: number) {
                 📍 {t.buyerCommune ? `${t.buyerCommune}, ` : ''}{t.buyerRegion}
               </span>
             </div>
-            <div class="budget-pill">💰 {formatBudget(t.budget, t.currency)}</div>
+            <div style="display: flex; gap: 16px; align-items: center; margin-top: 8px; flex-wrap: wrap;">
+              <div class="budget-pill" style="margin-top: 0;">💰 {formatBudget(t.budget, t.currency)}</div>
+              <div style="font-size: 12px; color: var(--muted2); display: flex; gap: 12px; align-items: center; flex-wrap: wrap;">
+                <span>📅 <strong>Publicada:</strong> {formatDate(t.publishDate)}</span>
+                <span style="opacity: 0.3">|</span>
+                <span>⏳ <strong>Término:</strong> {formatDate(t.closeDate)}</span>
+              </div>
+            </div>
             <div class="tender-ai" style="margin-top:12px">
               <span class="tender-ai-icon">🤖 VC Elemental IA: </span>
               {t.aiSummary}
