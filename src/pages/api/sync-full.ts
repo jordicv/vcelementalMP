@@ -14,7 +14,7 @@ async function sleep(ms: number) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-export const POST: APIRoute = async ({ request }) => {
+async function handleSync(request: Request) {
   const cronSecret = process.env.CRON_SECRET;
   const authHeader = request.headers.get('authorization');
 
@@ -253,4 +253,12 @@ export const POST: APIRoute = async ({ request }) => {
       'Connection': 'keep-alive',
     }
   });
+}
+
+export const GET: APIRoute = async ({ request }) => {
+  return handleSync(request);
+};
+
+export const POST: APIRoute = async ({ request }) => {
+  return handleSync(request);
 };
