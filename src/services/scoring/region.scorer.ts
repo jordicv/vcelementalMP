@@ -26,7 +26,7 @@ export const CHILE_REGIONS: Record<string, RegionMeta> = {
 export function extractRegionCode(regionText: string | null | undefined): string | null {
   if (!regionText) return null;
   const t = regionText.toLowerCase().trim();
-  if (t.includes('metropolitana') || t.includes(' rm')) return 'RM';
+  if (t.includes('metropolitana') || t.includes(' rm') || t.includes('santiago')) return 'RM';
   if (t.includes('valparaíso') || t.includes('valparaiso')) return 'V';
   if (t.includes('o\'higgins') || t.includes("o'higgins") || t.includes('libertador')) return 'VI';
   if (t.includes('maule')) return 'VII';
