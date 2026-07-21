@@ -48,12 +48,21 @@ try {
     const isNoRegion = company.region === 'Sin región específica';
 
     // Clasificar rubro de la licitación de forma dinámica para filtrar en la UI
-    const text = `${t.title} ${t.aiSummary || ''}`.toLowerCase();
+    const tenderDesc = (t.rawData as any)?.Descripcion || (t.rawData as any)?.Objetivo || '';
+    const textCleaned = ` ${t.title} ${t.aiSummary || ''} ${tenderDesc} `.toLowerCase().replace(/[.,/#!$%^&*;:{}=\-_`~()]/g, " ");
     let detectedIndustry = 'Otros';
     let maxMatches = 0;
 
     for (const [indName, keywords] of Object.entries(RUBRO_KEYWORDS)) {
-      const matches = keywords.filter(k => text.includes(k.toLowerCase())).length;
+      const matches = keywords.filter(k => {
+        const kw = k.toLowerCase();
+        if (kw.length <= 3) {
+          const regex = new RegExp(`\\b${kw}\\b`, 'i');
+          return regex.test(textCleaned);
+        }
+        return textCleaned.includes(kw);
+      }).length;
+
       if (matches > maxMatches) {
         maxMatches = matches;
         detectedIndustry = indName;

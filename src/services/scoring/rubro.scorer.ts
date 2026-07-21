@@ -654,9 +654,17 @@ export function scoreRubro(
   }
 
   const keywords = RUBRO_KEYWORDS[companyIndustry] ?? [];
-  const text = `${tenderTitle} ${tenderDescription ?? ''}`.toLowerCase();
+  const textCleaned = ` ${tenderTitle} ${tenderDescription ?? ''} `.toLowerCase().replace(/[.,/#!$%^&*;:{}=\-_`~()]/g, " ");
 
-  const matches = keywords.filter(k => text.includes(k.toLowerCase()));
+  const matches = keywords.filter(k => {
+    const kw = k.toLowerCase();
+    if (kw.length <= 3) {
+      // Exigir límites de palabra completa para palabras cortas (ej. 'ti', 'ito', 'ups')
+      const regex = new RegExp(`\\b${kw}\\b`, 'i');
+      return regex.test(textCleaned);
+    }
+    return textCleaned.includes(kw);
+  });
 
   // 2+ coincidencias = exacto (40pts) | 1 coincidencia = relacionado (25pts)
   if (matches.length >= 2) return { score: 40, label: 'Coincidencia exacta de rubro', matches };
