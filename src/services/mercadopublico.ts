@@ -118,11 +118,10 @@ export async function getTendersByStatus(
   status: 'Publicada' | 'Cerrada' | 'Adjudicada',
   ticket: string
 ): Promise<MPTender[]> {
-  // La API usa códigos numéricos: 5=Publicada, 6=Cerrada, 8=Adjudicada
-  const estadoCode: Record<string, number> = {
-    'Publicada': 5, 'Cerrada': 6, 'Adjudicada': 8
+  const estadoMap: Record<string, string> = {
+    'Publicada': 'publicada', 'Cerrada': 'cerrada', 'Adjudicada': 'adjudicada'
   };
-  const codigo = estadoCode[status] ?? 5;
+  const estadoParam = estadoMap[status] ?? 'publicada';
   const allTenders: MPTender[] = [];
   const seenCodes = new Set<string>();
 
@@ -130,7 +129,7 @@ export async function getTendersByStatus(
     let pagina = 1;
     while (allTenders.length < 500) {
       const data = await mpFetch(
-        `/licitaciones.json?estado=${codigo}&pagina=${pagina}`, ticket
+        `/licitaciones.json?estado=${estadoParam}&pagina=${pagina}`, ticket
       ) as MPResponse;
       const list = data?.Listado ?? [];
       if (list.length === 0) break;
