@@ -618,12 +618,13 @@ function scoreEmoji(score: number) {
     }
 
     function formatBudgetJS(budget: number, currency: string) {
-      if (budget <= 0) return 'No especificado';
-      if (currency === 'CLP') {
+      if (!budget || budget <= 0) return 'No especificado';
+      const curr = currency || 'CLP';
+      if (curr === 'CLP') {
         if (budget >= 1000000) return `$${(budget / 1000000).toFixed(1)}M CLP`;
         return `$${(budget / 1000).toFixed(0)}K CLP`;
       }
-      return `${budget.toLocaleString('es-CL')} ${currency}`;
+      return `${budget.toLocaleString('es-CL')} ${curr}`;
     }
 
     function formatDateJS(dateStr: string) {
@@ -634,30 +635,47 @@ function scoreEmoji(score: number) {
     }
 
     function renderTenderCard(t: any) {
-      const color = scoreColorJS(t.scoreTotal);
-      const cardClass = t.scoreTotal >= 80 ? 'score-high' : t.scoreTotal >= 60 ? 'score-good' : t.scoreTotal >= 40 ? 'score-mid' : 'score-low';
-      const days = Math.floor((new Date(t.closeDate).getTime() - Date.now()) / 86400000);
+      const scoreTotal = Number(t.scoreTotal) || 0;
+      const scoreRubro = Number(t.scoreRubro) || 0;
+      const scoreRegion = Number(t.scoreRegion) || 0;
+      const scoreBudget = Number(t.scoreBudget) || 0;
+      const scoreUrgency = Number(t.scoreUrgency) || 0;
 
-      const rubroLabel = t.scoreRubro >= 40 ? 'Coincidencia exacta' : t.scoreRubro >= 25 ? 'Rubro relacionado' : 'Sin relación';
-      const regionLabel = t.scoreRegion >= 30 ? 'Misma región' : t.scoreRegion >= 20 ? 'Región limítrofe' : 'Macrozona o lejana';
-      const budgetLabel = t.scoreBudget >= 20 ? 'Rango ideal' : t.scoreBudget >= 12 ? 'Sobre el rango' : 'Fuera de rango';
-      const urgencyLabel = t.scoreUrgency >= 10 ? 'Tiempo cómodo' : t.scoreUrgency >= 7 ? 'Plazo ajustado' : 'Urgente';
+      const color = scoreColorJS(scoreTotal);
+      const cardClass = scoreTotal >= 80 ? 'score-high' : scoreTotal >= 60 ? 'score-good' : scoreTotal >= 40 ? 'score-mid' : 'score-low';
+      
+      const closeDateObj = t.closeDate ? new Date(t.closeDate) : new Date(Date.now() + 864000000);
+      const days = isNaN(closeDateObj.getTime()) ? 10 : Math.floor((closeDateObj.getTime() - Date.now()) / 86400000);
+
+      const rubroLabel = scoreRubro >= 40 ? 'Coincidencia exacta' : scoreRubro >= 25 ? 'Rubro relacionado' : 'Sin relación';
+      const regionLabel = scoreRegion >= 30 ? 'Misma región' : scoreRegion >= 20 ? 'Región limítrofe' : 'Macrozona o lejana';
+      const budgetLabel = scoreBudget >= 20 ? 'Rango ideal' : scoreBudget >= 12 ? 'Sobre el rango' : 'Fuera de rango';
+      const urgencyLabel = scoreUrgency >= 10 ? 'Tiempo cómodo' : scoreUrgency >= 7 ? 'Plazo ajustado' : 'Urgente';
+
+      const extCode = t.externalCode || 'SIN-CODIGO';
+      const title = t.title || 'Licitación pública';
+      const buyerName = t.buyerName || 'Organismo Público';
+      const buyerRegion = t.buyerRegion || 'Región Metropolitana';
+      const buyerCommune = t.buyerCommune ? `${t.buyerCommune}, ` : '';
+      const status = t.status || 'Publicada';
+      const aiSummary = t.aiSummary || 'Monitoreo de recomendación IA activo para este rubro. Haz clic para ver el desglose.';
+      const scoreLabel = t.scoreLabel || 'Evaluar';
 
       return `
-        <a class="tender-card ${cardClass}" id="tender-${t.id}" href="/dashboard/${t.externalCode}">
+        <a class="tender-card ${cardClass}" id="tender-${t.id || extCode}" href="/dashboard/${extCode}">
           <div class="tender-left">
             <div class="tender-meta">
-              <span class="status-badge ${t.status === 'Publicada' ? 'status-open' : 'status-closed'}">● ${t.status}</span>
-              <span class="code-badge">${t.externalCode}</span>
+              <span class="status-badge ${status === 'Publicada' ? 'status-open' : 'status-closed'}">● ${status}</span>
+              <span class="code-badge">${extCode}</span>
               <span class="days-badge ${days <= 7 ? 'days-urgent' : 'days-ok'}">
                 ${days > 0 ? `${days}d` : 'Cerrado'}
               </span>
             </div>
-            <div class="tender-title">${t.title}</div>
+            <div class="tender-title">${title}</div>
             <div class="tender-buyer">
-              🏢 ${t.buyerName}
+              🏢 ${buyerName}
               <span class="buyer-location">
-                📍 ${t.buyerCommune ? `${t.buyerCommune}, ` : ''}${t.buyerRegion}
+                📍 ${buyerCommune}${buyerRegion}
               </span>
             </div>
             <div style="display: flex; gap: 16px; align-items: center; margin-top: 8px; flex-wrap: wrap;">
@@ -670,7 +688,7 @@ function scoreEmoji(score: number) {
             </div>
             <div class="tender-ai" style="margin-top:12px">
               <span class="tender-ai-icon">🤖 VC Elemental IA: </span>
-              ${t.aiSummary}
+              ${aiSummary}
             </div>
           </div>
 
@@ -678,28 +696,28 @@ function scoreEmoji(score: number) {
             <div class="score-header">
               <div>
                 <div class="score-total-num" style="color: ${color}">
-                  ${scoreEmojiJS(t.scoreTotal)} ${t.scoreTotal}
+                  ${scoreEmojiJS(scoreTotal)} ${scoreTotal}
                 </div>
-                <div class="score-label-text">${t.scoreLabel}</div>
+                <div class="score-label-text">${scoreLabel}</div>
               </div>
               <div style="font-size:11px; color: var(--muted); text-align:right">de 100 pts</div>
             </div>
 
             <div class="score-dim">
-              <div class="score-dim-header"><span class="score-dim-name">🏭 Rubro</span><span class="score-dim-val">${t.scoreRubro}/40</span></div>
-              <div class="bar-track"><div class="bar-fill" style="width:${(t.scoreRubro/40)*100}%; background:${color}"></div></div>
+              <div class="score-dim-header"><span class="score-dim-name">🏭 Rubro</span><span class="score-dim-val">${scoreRubro}/40</span></div>
+              <div class="bar-track"><div class="bar-fill" style="width:${Math.min(100, (scoreRubro/40)*100)}%; background:${color}"></div></div>
             </div>
             <div class="score-dim">
-              <div class="score-dim-header"><span class="score-dim-name">📍 Región</span><span class="score-dim-val">${t.scoreRegion}/30</span></div>
-              <div class="bar-track"><div class="bar-fill" style="width:${(t.scoreRegion/30)*100}%; background:${color}"></div></div>
+              <div class="score-dim-header"><span class="score-dim-name">📍 Región</span><span class="score-dim-val">${scoreRegion}/30</span></div>
+              <div class="bar-track"><div class="bar-fill" style="width:${Math.min(100, (scoreRegion/30)*100)}%; background:${color}"></div></div>
             </div>
             <div class="score-dim">
-              <div class="score-dim-header"><span class="score-dim-name">💰 Presupuesto</span><span class="score-dim-val">${t.scoreBudget}/20</span></div>
-              <div class="bar-track"><div class="bar-fill" style="width:${(t.scoreBudget/20)*100}%; background:${color}"></div></div>
+              <div class="score-dim-header"><span class="score-dim-name">💰 Presupuesto</span><span class="score-dim-val">${scoreBudget}/20</span></div>
+              <div class="bar-track"><div class="bar-fill" style="width:${Math.min(100, (scoreBudget/20)*100)}%; background:${color}"></div></div>
             </div>
             <div class="score-dim">
-              <div class="score-dim-header"><span class="score-dim-name">⏰ Urgencia</span><span class="score-dim-val">${t.scoreUrgency}/10</span></div>
-              <div class="bar-track"><div class="bar-fill" style="width:${(t.scoreUrgency/10)*100}%; background:${color}"></div></div>
+              <div class="score-dim-header"><span class="score-dim-name">⏰ Urgencia</span><span class="score-dim-val">${scoreUrgency}/10</span></div>
+              <div class="bar-track"><div class="bar-fill" style="width:${Math.min(100, (scoreUrgency/10)*100)}%; background:${color}"></div></div>
             </div>
           </div>
         </a>
@@ -713,15 +731,15 @@ function scoreEmoji(score: number) {
 
       [btnPrev, btnPrevTop].forEach(btn => {
         if (!btn) return;
-        btn.disabled = currentPage === 1;
-        btn.style.opacity = currentPage === 1 ? '0.4' : '1';
-        btn.style.cursor = currentPage === 1 ? 'not-allowed' : 'pointer';
+        btn.disabled = currentPage <= 1;
+        btn.style.opacity = currentPage <= 1 ? '0.4' : '1';
+        btn.style.cursor = currentPage <= 1 ? 'not-allowed' : 'pointer';
       });
       [btnNext, btnNextTop].forEach(btn => {
         if (!btn) return;
-        btn.disabled = currentPage === totalPages;
-        btn.style.opacity = currentPage === totalPages ? '0.4' : '1';
-        btn.style.cursor = currentPage === totalPages ? 'not-allowed' : 'pointer';
+        btn.disabled = currentPage >= totalPages;
+        btn.style.opacity = currentPage >= totalPages ? '0.4' : '1';
+        btn.style.cursor = currentPage >= totalPages ? 'not-allowed' : 'pointer';
       });
     }
 
@@ -750,6 +768,9 @@ function scoreEmoji(score: number) {
 
       try {
         const res = await fetch(`/api/tenders?${params.toString()}`);
+        if (!res.ok) {
+          throw new Error(`HTTP error ${res.status}`);
+        }
         const data = await res.json();
 
         if (data.success) {
