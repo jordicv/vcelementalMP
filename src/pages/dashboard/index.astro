@@ -26,6 +26,14 @@ function cleanRegionName(regionStr: string | null): string {
   return clean;
 }
 
+const INDUSTRY_PATTERNS: Array<{ name: string; regex: RegExp }> = Object.entries(RUBRO_KEYWORDS).map(([name, keywords]) => {
+  const terms = keywords.map(k => {
+    const escaped = k.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    return k.length <= 3 ? `\\b${escaped}\\b` : escaped;
+  });
+  return { name, regex: new RegExp(terms.join('|'), 'gi') };
+});
+
 let company = { id: '', name: 'VC Elemental', industry: 'Sin rubro específico', region: 'Sin región específica', apiTicket: '' };
 let mockTenders: any[] = [];
 let regionsList: string[] = [];
@@ -70,7 +78,7 @@ try {
         .from(tenders)
         .where(eq(tenders.companyId, company.id))
         .orderBy(desc(tenders.scoreTotalVal))
-        .limit(500)
+        .limit(5000)
     : [];
 
   if (liveTenders.length === 0) {
@@ -101,7 +109,7 @@ try {
       })
       .from(tenders)
       .orderBy(desc(tenders.scoreTotalVal))
-      .limit(500);
+      .limit(5000);
   }
 
   mockTenders = liveTenders.map(t => {
@@ -109,30 +117,17 @@ try {
     const isNoIndustry = company.industry === 'Sin rubro específico';
     const isNoRegion = company.region === 'Sin región específica';
 
-    // Clasificar rubro de la licitación de forma dinámica para filtrar en la UI
+    // Clasificar rubro de la licitación de forma ultra-rápida usando RegExp pre-compiladas
     const tenderDesc = t.description || t.objetivo || '';
     const textCleaned = ` ${t.title} ${t.aiSummary || ''} ${tenderDesc} `.toLowerCase().replace(/[.,/#!$%^&*;:{}=\-_`~()]/g, " ");
     let detectedIndustry = 'Otros';
     let maxMatches = 0;
 
-    for (const [indName, keywords] of Object.entries(RUBRO_KEYWORDS)) {
-      const matches = keywords.filter(k => {
-        const kw = k.toLowerCase();
-        if (kw.length <= 3) {
-          try {
-            const escaped = kw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-            const regex = new RegExp(`\\b${escaped}\\b`, 'i');
-            return regex.test(textCleaned);
-          } catch {
-            return textCleaned.includes(kw);
-          }
-        }
-        return textCleaned.includes(kw);
-      }).length;
-
+    for (const item of INDUSTRY_PATTERNS) {
+      const matches = (textCleaned.match(item.regex) || []).length;
       if (matches > maxMatches) {
         maxMatches = matches;
-        detectedIndustry = indName;
+        detectedIndustry = item.name;
       }
     }
 
