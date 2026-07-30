@@ -68,9 +68,13 @@ try {
     })
     .from(tenders);
 
-  const liveTenders = company.id
+  let liveTenders = company.id
     ? await baseQuery.where(eq(tenders.companyId, company.id)).orderBy(desc(tenders.scoreTotalVal)).limit(150)
     : await baseQuery.orderBy(desc(tenders.scoreTotalVal)).limit(150);
+
+  if (liveTenders.length === 0 && company.id) {
+    liveTenders = await baseQuery.orderBy(desc(tenders.scoreTotalVal)).limit(150);
+  }
 
   mockTenders = liveTenders.map(t => {
     const budgetVal = t.budget ? parseFloat(t.budget) : 0;

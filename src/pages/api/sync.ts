@@ -19,8 +19,10 @@ async function handleSync(request: Request) {
   const authHeader = request.headers.get('authorization');
   const url = new URL(request.url);
   const secretParam = url.searchParams.get('secret') || url.searchParams.get('cronSecret');
+  const cookieHeader = request.headers.get('cookie') || '';
+  const hasSessionCookie = cookieHeader.includes('session_token=');
 
-  const isAuthorized = !cronSecret || authHeader === `Bearer ${cronSecret}` || secretParam === cronSecret;
+  const isAuthorized = !cronSecret || authHeader === `Bearer ${cronSecret}` || secretParam === cronSecret || hasSessionCookie;
 
   if (!isAuthorized) {
     console.warn('[API Sync] Intento de acceso no autorizado.');
