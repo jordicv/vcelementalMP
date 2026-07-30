@@ -41,39 +41,67 @@ try {
     }
   }
   
-  const baseQuery = db
-    .select({
-      id: tenders.id,
-      externalCode: tenders.externalCode,
-      title: tenders.title,
-      status: tenders.status,
-      budget: tenders.budget,
-      currency: tenders.currency,
-      closeDate: tenders.closeDate,
-      buyerName: tenders.buyerName,
-      buyerRegion: tenders.buyerRegion,
-      buyerRegionCode: tenders.buyerRegionCode,
-      buyerCommune: tenders.buyerCommune,
-      scoreTotalVal: tenders.scoreTotalVal,
-      scoreRubro: tenders.scoreRubro,
-      scoreRegion: tenders.scoreRegion,
-      scoreBudget: tenders.scoreBudget,
-      scoreUrgency: tenders.scoreUrgency,
-      scoreLabel: tenders.scoreLabel,
-      aiSummary: tenders.aiSummary,
-      createdAt: tenders.createdAt,
-      description: sql<string>`${tenders.rawData}->>'Descripcion'`,
-      objetivo: sql<string>`${tenders.rawData}->>'Objetivo'`,
-      fechaPublicacion: sql<string>`${tenders.rawData}->>'FechaPublicacion'`,
-    })
-    .from(tenders);
-
   let liveTenders = company.id
-    ? await baseQuery.where(eq(tenders.companyId, company.id)).orderBy(desc(tenders.scoreTotalVal)).limit(150)
-    : await baseQuery.orderBy(desc(tenders.scoreTotalVal)).limit(150);
+    ? await db
+        .select({
+          id: tenders.id,
+          externalCode: tenders.externalCode,
+          title: tenders.title,
+          status: tenders.status,
+          budget: tenders.budget,
+          currency: tenders.currency,
+          closeDate: tenders.closeDate,
+          buyerName: tenders.buyerName,
+          buyerRegion: tenders.buyerRegion,
+          buyerRegionCode: tenders.buyerRegionCode,
+          buyerCommune: tenders.buyerCommune,
+          scoreTotalVal: tenders.scoreTotalVal,
+          scoreRubro: tenders.scoreRubro,
+          scoreRegion: tenders.scoreRegion,
+          scoreBudget: tenders.scoreBudget,
+          scoreUrgency: tenders.scoreUrgency,
+          scoreLabel: tenders.scoreLabel,
+          aiSummary: tenders.aiSummary,
+          createdAt: tenders.createdAt,
+          description: sql<string>`${tenders.rawData}->>'Descripcion'`,
+          objetivo: sql<string>`${tenders.rawData}->>'Objetivo'`,
+          fechaPublicacion: sql<string>`${tenders.rawData}->>'FechaPublicacion'`,
+        })
+        .from(tenders)
+        .where(eq(tenders.companyId, company.id))
+        .orderBy(desc(tenders.scoreTotalVal))
+        .limit(100)
+    : [];
 
-  if (liveTenders.length === 0 && company.id) {
-    liveTenders = await baseQuery.orderBy(desc(tenders.scoreTotalVal)).limit(150);
+  if (liveTenders.length === 0) {
+    liveTenders = await db
+      .select({
+        id: tenders.id,
+        externalCode: tenders.externalCode,
+        title: tenders.title,
+        status: tenders.status,
+        budget: tenders.budget,
+        currency: tenders.currency,
+        closeDate: tenders.closeDate,
+        buyerName: tenders.buyerName,
+        buyerRegion: tenders.buyerRegion,
+        buyerRegionCode: tenders.buyerRegionCode,
+        buyerCommune: tenders.buyerCommune,
+        scoreTotalVal: tenders.scoreTotalVal,
+        scoreRubro: tenders.scoreRubro,
+        scoreRegion: tenders.scoreRegion,
+        scoreBudget: tenders.scoreBudget,
+        scoreUrgency: tenders.scoreUrgency,
+        scoreLabel: tenders.scoreLabel,
+        aiSummary: tenders.aiSummary,
+        createdAt: tenders.createdAt,
+        description: sql<string>`${tenders.rawData}->>'Descripcion'`,
+        objetivo: sql<string>`${tenders.rawData}->>'Objetivo'`,
+        fechaPublicacion: sql<string>`${tenders.rawData}->>'FechaPublicacion'`,
+      })
+      .from(tenders)
+      .orderBy(desc(tenders.scoreTotalVal))
+      .limit(100);
   }
 
   mockTenders = liveTenders.map(t => {
@@ -91,8 +119,13 @@ try {
       const matches = keywords.filter(k => {
         const kw = k.toLowerCase();
         if (kw.length <= 3) {
-          const regex = new RegExp(`\\b${kw}\\b`, 'i');
-          return regex.test(textCleaned);
+          try {
+            const escaped = kw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            const regex = new RegExp(`\\b${escaped}\\b`, 'i');
+            return regex.test(textCleaned);
+          } catch {
+            return textCleaned.includes(kw);
+          }
         }
         return textCleaned.includes(kw);
       }).length;
