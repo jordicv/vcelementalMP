@@ -144,7 +144,7 @@ export const GET: APIRoute = async ({ request }) => {
         }
       }
 
-      const closeDateObj = t.closeDate || new Date(Date.now() + 10 * 86400000);
+      const closeDateObj = t.closeDate ? new Date(t.closeDate) : new Date(Date.now() + 10 * 86400000);
       const daysVal = Math.floor((closeDateObj.getTime() - Date.now()) / 86400000);
       const isClosed = t.status === 'Cerrada' || t.status === 'Adjudicada' || daysVal <= 0;
 
@@ -171,6 +171,16 @@ export const GET: APIRoute = async ({ request }) => {
         normalizedRegion: cleanRegionName(t.buyerRegion),
       };
     });
+
+    // Post-filtro estricto por estado computado y rubro
+    if (status !== 'all') {
+      items = items.filter(t => {
+        if (status === 'Publicada') return t.status === 'Publicada';
+        if (status === 'Cerrada') return t.status === 'Cerrada' || t.status === 'Adjudicada';
+        if (status === 'Adjudicada') return t.status === 'Adjudicada';
+        return true;
+      });
+    }
 
     if (category !== 'all') {
       items = items.filter(t => t.detectedIndustry === category);
