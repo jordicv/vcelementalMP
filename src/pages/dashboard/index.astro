@@ -78,7 +78,7 @@ try {
         .from(tenders)
         .where(eq(tenders.companyId, company.id))
         .orderBy(desc(tenders.scoreTotalVal))
-        .limit(5000)
+        .limit(100)
     : [];
 
   if (liveTenders.length === 0) {
@@ -109,7 +109,7 @@ try {
       })
       .from(tenders)
       .orderBy(desc(tenders.scoreTotalVal))
-      .limit(5000);
+      .limit(100);
   }
 
   mockTenders = liveTenders.map(t => {
