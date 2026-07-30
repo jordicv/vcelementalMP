@@ -131,10 +131,12 @@ async function runDirectSync() {
         const score = calculateScore(tenderForScore, company);
 
         let basesTexto: Record<string, string> | null = null;
-        try {
-          basesTexto = await resolveBasesFromFicha(code);
-        } catch (err: any) {
-          console.error(`[Direct Sync] Error al obtener bases para ${code}:`, err.message);
+        if (score.total >= 50) {
+          try {
+            basesTexto = await resolveBasesFromFicha(code);
+          } catch (err: any) {
+            console.error(`[Direct Sync] Error al obtener bases para ${code}:`, err.message);
+          }
         }
 
         const rawData = {
