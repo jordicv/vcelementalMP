@@ -6,9 +6,8 @@ import { getTendersByStatus, getTenderDetail } from '../../services/mercadopubli
 import { calculateScore } from '../../services/scoring/index';
 import { resolveBasesFromFicha } from '../../services/scraper';
 
-const BATCH_SIZE  = 5;
-const DELAY_MS    = 150;
-const MAX_TENDERS = 300; // Un poco más amplio para la sincronización profunda nocturna
+const BATCH_SIZE  = 10;
+const DELAY_MS    = 50;
 
 async function sleep(ms: number) {
   return new Promise(resolve => setTimeout(resolve, ms));
@@ -58,19 +57,27 @@ async function handleSync(request: Request) {
 
         send({ status: 'filtering', percent: 5, message: 'Filtrando licitaciones nuevas...' });
 
-        // 2. Filtrar las que ya existen en la base de datos
+        // 2. Filtrar las que ya existen en la base de datos (recorriendo por lotes de 500)
         const allCodes = mpTenders.map((t: any) => t.CodigoExterno).filter(Boolean);
-        const existing = await db
-          .select({ code: tenders.externalCode, budget: tenders.budget })
-          .from(tenders)
-          .where(inArray(tenders.externalCode, allCodes.slice(0, 1000)));
+        const existingSet = new Set<string>();
+        const existingWithBudgetSet = new Set<string>();
 
-        const existingSet = new Set(existing.map((e: any) => e.code));
-        const existingWithBudgetSet = new Set(existing.filter((e: any) => e.budget !== null).map((e: any) => e.code));
+        for (let i = 0; i < allCodes.length; i += 500) {
+          const chunk = allCodes.slice(i, i + 500);
+          const existing = await db
+            .select({ code: tenders.externalCode, budget: tenders.budget })
+            .from(tenders)
+            .where(inArray(tenders.externalCode, chunk));
 
-        const toProcess = mpTenders
-          .filter((t: any) => t.CodigoExterno && (!existingSet.has(t.CodigoExterno) || !existingWithBudgetSet.has(t.CodigoExterno)))
-          .slice(0, MAX_TENDERS);
+          for (const e of existing) {
+            existingSet.add(e.code);
+            if (e.budget !== null) existingWithBudgetSet.add(e.code);
+          }
+        }
+
+        const toProcess = mpTenders.filter(
+          (t: any) => t.CodigoExterno && (!existingSet.has(t.CodigoExterno) || !existingWithBudgetSet.has(t.CodigoExterno))
+        );
 
         console.log(`[API Sync Full] Licitaciones nuevas a procesar: ${toProcess.length}`);
 
