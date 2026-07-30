@@ -82,7 +82,7 @@ try {
         .from(tenders)
         .where(eq(tenders.companyId, company.id))
         .orderBy(desc(tenders.scoreTotalVal))
-        .limit(100)
+        .limit(25)
     : [];
 
   if (liveTenders.length === 0) {
@@ -113,7 +113,7 @@ try {
       })
       .from(tenders)
       .orderBy(desc(tenders.scoreTotalVal))
-      .limit(100);
+      .limit(25);
   }
 
   mockTenders = liveTenders.map(t => {
@@ -580,19 +580,18 @@ function scoreEmoji(score: number) {
   </div>
 
   <script>
-    // Filter elements
-    const cards = document.querySelectorAll('.tender-card');
-    const searchInput = document.getElementById('search-input');
-    const regionSelect = document.getElementById('region-select');
-    const categorySelect = document.getElementById('category-select');
+    const tenderListContainer = document.getElementById('tender-list');
+    const searchInput = document.getElementById('search-input') as HTMLInputElement | null;
+    const regionSelect = document.getElementById('region-select') as HTMLSelectElement | null;
+    const categorySelect = document.getElementById('category-select') as HTMLSelectElement | null;
     const statusSelect = document.getElementById('status-select') as HTMLSelectElement | null;
     const filterScoreBtn = document.getElementById('filter-score');
     
-    let activeFilterTab = 'all'; // 'all', 'recommended', 'closing'
+    let activeFilterTab = 'all'; // 'all', 'recommended', 'closing', 'compra-agil'
     let scoreFilterActive = false;
 
     // Parámetros de paginación
-    const PAGE_SIZE = 20;
+    const PAGE_SIZE = 25;
     let currentPage = 1;
     let totalPages = 1;
 
@@ -602,10 +601,114 @@ function scoreEmoji(score: number) {
     const btnPrevTop = document.getElementById('btn-page-prev-top') as HTMLButtonElement | null;
     const btnNextTop = document.getElementById('btn-page-next-top') as HTMLButtonElement | null;
     const pageInfoTop = document.getElementById('page-info-top');
+    const scrollContainer = document.getElementById('pagination-top');
+
+    function scoreColorJS(score: number) {
+      if (score >= 80) return '#22c55e';
+      if (score >= 60) return '#eab308';
+      if (score >= 40) return '#f97316';
+      return '#ef4444';
+    }
+
+    function scoreEmojiJS(score: number) {
+      if (score >= 80) return '🟢';
+      if (score >= 60) return '🟡';
+      if (score >= 40) return '🟠';
+      return '🔴';
+    }
+
+    function formatBudgetJS(budget: number, currency: string) {
+      if (budget <= 0) return 'No especificado';
+      if (currency === 'CLP') {
+        if (budget >= 1000000) return `$${(budget / 1000000).toFixed(1)}M CLP`;
+        return `$${(budget / 1000).toFixed(0)}K CLP`;
+      }
+      return `${budget.toLocaleString('es-CL')} ${currency}`;
+    }
+
+    function formatDateJS(dateStr: string) {
+      if (!dateStr) return 'No especificada';
+      const d = new Date(dateStr);
+      if (isNaN(d.getTime())) return 'No especificada';
+      return d.toLocaleDateString('es-CL', { day: '2-digit', month: '2-digit', year: 'numeric' });
+    }
+
+    function renderTenderCard(t: any) {
+      const color = scoreColorJS(t.scoreTotal);
+      const cardClass = t.scoreTotal >= 80 ? 'score-high' : t.scoreTotal >= 60 ? 'score-good' : t.scoreTotal >= 40 ? 'score-mid' : 'score-low';
+      const days = Math.floor((new Date(t.closeDate).getTime() - Date.now()) / 86400000);
+
+      const rubroLabel = t.scoreRubro >= 40 ? 'Coincidencia exacta' : t.scoreRubro >= 25 ? 'Rubro relacionado' : 'Sin relación';
+      const regionLabel = t.scoreRegion >= 30 ? 'Misma región' : t.scoreRegion >= 20 ? 'Región limítrofe' : 'Macrozona o lejana';
+      const budgetLabel = t.scoreBudget >= 20 ? 'Rango ideal' : t.scoreBudget >= 12 ? 'Sobre el rango' : 'Fuera de rango';
+      const urgencyLabel = t.scoreUrgency >= 10 ? 'Tiempo cómodo' : t.scoreUrgency >= 7 ? 'Plazo ajustado' : 'Urgente';
+
+      return `
+        <a class="tender-card ${cardClass}" id="tender-${t.id}" href="/dashboard/${t.externalCode}">
+          <div class="tender-left">
+            <div class="tender-meta">
+              <span class="status-badge ${t.status === 'Publicada' ? 'status-open' : 'status-closed'}">● ${t.status}</span>
+              <span class="code-badge">${t.externalCode}</span>
+              <span class="days-badge ${days <= 7 ? 'days-urgent' : 'days-ok'}">
+                ${days > 0 ? `${days}d` : 'Cerrado'}
+              </span>
+            </div>
+            <div class="tender-title">${t.title}</div>
+            <div class="tender-buyer">
+              🏢 ${t.buyerName}
+              <span class="buyer-location">
+                📍 ${t.buyerCommune ? `${t.buyerCommune}, ` : ''}${t.buyerRegion}
+              </span>
+            </div>
+            <div style="display: flex; gap: 16px; align-items: center; margin-top: 8px; flex-wrap: wrap;">
+              <div class="budget-pill" style="margin-top: 0;">💰 ${formatBudgetJS(t.budget, t.currency)}</div>
+              <div style="font-size: 12px; color: var(--muted2); display: flex; gap: 12px; align-items: center; flex-wrap: wrap;">
+                <span>📅 <strong>Publicada:</strong> ${formatDateJS(t.publishDate)}</span>
+                <span style="opacity: 0.3">|</span>
+                <span>⏳ <strong>Término:</strong> ${formatDateJS(t.closeDate)}</span>
+              </div>
+            </div>
+            <div class="tender-ai" style="margin-top:12px">
+              <span class="tender-ai-icon">🤖 VC Elemental IA: </span>
+              ${t.aiSummary}
+            </div>
+          </div>
+
+          <div class="score-panel">
+            <div class="score-header">
+              <div>
+                <div class="score-total-num" style="color: ${color}">
+                  ${scoreEmojiJS(t.scoreTotal)} ${t.scoreTotal}
+                </div>
+                <div class="score-label-text">${t.scoreLabel}</div>
+              </div>
+              <div style="font-size:11px; color: var(--muted); text-align:right">de 100 pts</div>
+            </div>
+
+            <div class="score-dim">
+              <div class="score-dim-header"><span class="score-dim-name">🏭 Rubro</span><span class="score-dim-val">${t.scoreRubro}/40</span></div>
+              <div class="bar-track"><div class="bar-fill" style="width:${(t.scoreRubro/40)*100}%; background:${color}"></div></div>
+            </div>
+            <div class="score-dim">
+              <div class="score-dim-header"><span class="score-dim-name">📍 Región</span><span class="score-dim-val">${t.scoreRegion}/30</span></div>
+              <div class="bar-track"><div class="bar-fill" style="width:${(t.scoreRegion/30)*100}%; background:${color}"></div></div>
+            </div>
+            <div class="score-dim">
+              <div class="score-dim-header"><span class="score-dim-name">💰 Presupuesto</span><span class="score-dim-val">${t.scoreBudget}/20</span></div>
+              <div class="bar-track"><div class="bar-fill" style="width:${(t.scoreBudget/20)*100}%; background:${color}"></div></div>
+            </div>
+            <div class="score-dim">
+              <div class="score-dim-header"><span class="score-dim-name">⏰ Urgencia</span><span class="score-dim-val">${t.scoreUrgency}/10</span></div>
+              <div class="bar-track"><div class="bar-fill" style="width:${(t.scoreUrgency/10)*100}%; background:${color}"></div></div>
+            </div>
+          </div>
+        </a>
+      `;
+    }
 
     function updatePaginationUI() {
       const infoText = `Página ${currentPage} de ${totalPages}`;
-      if (pageInfo) pageInfo.innerText = `Página ${currentPage} de ${totalPages}`;
+      if (pageInfo) pageInfo.innerText = infoText;
       if (pageInfoTop) pageInfoTop.innerText = infoText;
 
       [btnPrev, btnPrevTop].forEach(btn => {
@@ -622,107 +725,113 @@ function scoreEmoji(score: number) {
       });
     }
 
-    // Combined filtering function
-    function applyFilters(resetPage = true) {
+    async function loadPage(page = 1) {
+      if (!tenderListContainer) return;
+
+      const query = searchInput?.value || '';
+      const region = regionSelect?.value || 'all';
+      const category = categorySelect?.value || 'all';
+      const status = statusSelect?.value || 'all';
+      const scoreMin = scoreFilterActive ? 70 : 0;
+      const tab = activeFilterTab;
+
+      const params = new URLSearchParams({
+        page: String(page),
+        pageSize: String(PAGE_SIZE),
+        search: query,
+        region,
+        category,
+        status,
+        scoreMin: String(scoreMin),
+        tab
+      });
+
+      tenderListContainer.style.opacity = '0.5';
+
       try {
-        if (resetPage) {
-          currentPage = 1;
-        }
+        const res = await fetch(`/api/tenders?${params.toString()}`);
+        const data = await res.json();
 
-        const query = searchInput ? (searchInput as HTMLInputElement).value.toLowerCase().trim() : '';
-        const selectedRegion = regionSelect ? (regionSelect as HTMLSelectElement).value : 'all';
-        const selectedCategory = categorySelect ? (categorySelect as HTMLSelectElement).value : 'all';
-        const selectedStatus = statusSelect ? statusSelect.value : 'all';
+        if (data.success) {
+          currentPage = data.page;
+          totalPages = data.totalPages || 1;
 
-        let matchedCount = 0;
-        const startIdx = (currentPage - 1) * PAGE_SIZE;
-        const endIdx = currentPage * PAGE_SIZE;
-
-        cards.forEach((c) => {
-          const card = c as HTMLElement;
-          const score = parseInt(card.dataset.score || '0');
-          const days = parseInt(card.dataset.days || '0');
-          const region = card.dataset.region || 'OTHER';
-          const category = card.dataset.category || 'Otros';
-          const status = card.dataset.status || 'Publicada';
-          const isCompraAgil = card.dataset.compraAgil === 'true';
-          const text = card.innerText ? card.innerText.toLowerCase() : '';
-
-          // 1. Text Search Filter
-          const matchesQuery = !query || text.includes(query);
-
-          // 2. Region Filter
-          const matchesRegion = selectedRegion === 'all' || region === selectedRegion;
-
-          // 3. Category Filter
-          const matchesCategory = selectedCategory === 'all' || category === selectedCategory;
-
-          // 4. Status Filter
-          const matchesStatus = selectedStatus === 'all' || status === selectedStatus;
-
-          // 5. Score >= 70 Toggle Filter
-          const matchesScoreToggle = !scoreFilterActive || score >= 70;
-
-          // 6. Tab Filter
-          const matchesTab = activeFilterTab === 'all' 
-            ? true
-            : activeFilterTab === 'recommended' 
-              ? score >= 70
-              : activeFilterTab === 'closing' 
-                ? days <= 7
-                : activeFilterTab === 'compra-agil'
-                  ? isCompraAgil
-                  : true;
-
-          // Apply combined visibility with pagination slicing
-          if (matchesQuery && matchesRegion && matchesCategory && matchesStatus && matchesScoreToggle && matchesTab) {
-            // Increment BEFORE range check so page slicing is correct
-            if (matchedCount >= startIdx && matchedCount < endIdx) {
-              card.style.display = ''; // Let CSS control the display (grid defined in .tender-card)
-            } else {
-              card.style.display = 'none';
-            }
-            matchedCount++;
+          if (data.items && data.items.length > 0) {
+            tenderListContainer.innerHTML = data.items.map((t: any) => renderTenderCard(t)).join('');
           } else {
-            card.style.display = 'none';
+            tenderListContainer.innerHTML = `<div style="text-align:center; padding: 40px; color: var(--muted); font-weight:600;">No se encontraron licitaciones con los filtros seleccionados.</div>`;
           }
-        });
 
-        // Update pagination UI
-        totalPages = Math.ceil(matchedCount / PAGE_SIZE) || 1;
-        const infoText = `Página ${currentPage} de ${totalPages}  ·  ${matchedCount} licitaciones`;
-        if (pageInfo) pageInfo.innerText = infoText;
-        if (pageInfoTop) pageInfoTop.innerText = infoText;
-        updatePaginationUI();
-
+          const infoText = `Página ${currentPage} de ${totalPages}  ·  ${data.totalTenders} licitaciones totales`;
+          if (pageInfo) pageInfo.innerText = infoText;
+          if (pageInfoTop) pageInfoTop.innerText = infoText;
+          updatePaginationUI();
+        }
       } catch (err) {
-        console.error('[VC Elemental MP Error] Fallo en applyFilters:', err);
+        console.error('Error cargando licitaciones dinámicamente:', err);
+      } finally {
+        tenderListContainer.style.opacity = '1';
       }
     }
 
-    // Event listeners
-    if (regionSelect) {
-      regionSelect.addEventListener('change', () => {
-        applyFilters();
-      });
+    let searchDebounceTimeout: any = null;
+
+    function applyFilters() {
+      currentPage = 1;
+      loadPage(1);
     }
 
-    if (categorySelect) {
-      categorySelect.addEventListener('change', () => {
-        applyFilters();
-      });
-    }
+    // Event Listeners para Filtros
+    if (regionSelect) regionSelect.addEventListener('change', applyFilters);
+    if (categorySelect) categorySelect.addEventListener('change', applyFilters);
+    if (statusSelect) statusSelect.addEventListener('change', applyFilters);
 
-    if (statusSelect) {
-      statusSelect.addEventListener('change', () => {
-        applyFilters();
-      });
-    }
-
-    // Search Input
     if (searchInput) {
-      searchInput.addEventListener('input', applyFilters);
+      searchInput.addEventListener('input', () => {
+        clearTimeout(searchDebounceTimeout);
+        searchDebounceTimeout = setTimeout(applyFilters, 300);
+      });
     }
+
+    if (filterScoreBtn) {
+      filterScoreBtn.addEventListener('click', () => {
+        scoreFilterActive = !scoreFilterActive;
+        filterScoreBtn.style.opacity = scoreFilterActive ? '1' : '0.6';
+        applyFilters();
+      });
+    }
+
+    document.querySelectorAll('[data-filter]').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.preventDefault();
+        document.querySelectorAll('[data-filter]').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        activeFilterTab = (btn as HTMLElement).dataset.filter || 'all';
+        applyFilters();
+      });
+    });
+
+    // Paginación Navegación
+    function goToPrevPage(e: Event) {
+      e.preventDefault();
+      if (currentPage > 1) {
+        loadPage(currentPage - 1);
+        if (scrollContainer) scrollContainer.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+    }
+
+    function goToNextPage(e: Event) {
+      e.preventDefault();
+      if (currentPage < totalPages) {
+        loadPage(currentPage + 1);
+        if (scrollContainer) scrollContainer.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+    }
+
+    if (btnPrev) btnPrev.addEventListener('click', goToPrevPage);
+    if (btnPrevTop) btnPrevTop.addEventListener('click', goToPrevPage);
+    if (btnNext) btnNext.addEventListener('click', goToNextPage);
+    if (btnNextTop) btnNextTop.addEventListener('click', goToNextPage);
 
     // Refresh Button manual sync integration
     const refreshBtn = document.getElementById('btn-refresh');
@@ -734,10 +843,9 @@ function scoreEmoji(score: number) {
       refreshBtn.addEventListener('click', async (e) => {
         e.preventDefault();
         
-        // Visual loading state
         const originalHtml = refreshBtn.innerHTML;
         refreshBtn.innerHTML = '⏳ Sincronizando...';
-        refreshBtn.disabled = true;
+        (refreshBtn as HTMLButtonElement).disabled = true;
         refreshBtn.style.opacity = '0.7';
 
         progressContainer.style.display = 'block';
@@ -775,7 +883,7 @@ function scoreEmoji(score: number) {
 
             buffer += decoder.decode(value, { stream: true });
             const lines = buffer.split('\n');
-            buffer = lines.pop() || ''; // Guardar línea incompleta en el búfer
+            buffer = lines.pop() || '';
 
             for (const line of lines) {
               if (!line.trim()) continue;
@@ -794,12 +902,16 @@ function scoreEmoji(score: number) {
             }
           }
 
-          // Completado con éxito
-          progressText.textContent = '¡Completado! Recargando...';
+          progressText.textContent = '¡Completado! Actualizando datos...';
           progressBar.style.width = '100%';
           setTimeout(() => {
-            window.location.reload();
-          }, 600);
+            loadPage(1);
+            refreshBtn.innerHTML = originalHtml;
+            (refreshBtn as HTMLButtonElement).disabled = false;
+            refreshBtn.style.opacity = '1';
+            progressContainer.style.display = 'none';
+            progressText.style.display = 'none';
+          }, 800);
 
         } catch (err: any) {
           console.error('[Sync Error]:', err);
@@ -809,7 +921,7 @@ function scoreEmoji(score: number) {
 
           setTimeout(() => {
             refreshBtn.innerHTML = originalHtml;
-            refreshBtn.disabled = false;
+            (refreshBtn as HTMLButtonElement).disabled = false;
             refreshBtn.style.opacity = '1';
             progressContainer.style.display = 'none';
             progressText.style.display = 'none';
@@ -817,52 +929,5 @@ function scoreEmoji(score: number) {
         }
       });
     }
-
-    if (filterScoreBtn) {
-      filterScoreBtn.addEventListener('click', () => {
-        scoreFilterActive = !scoreFilterActive;
-        filterScoreBtn.style.opacity = scoreFilterActive ? '1' : '0.6';
-        applyFilters();
-      });
-    }
-
-    document.querySelectorAll('[data-filter]').forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        e.preventDefault();
-        document.querySelectorAll('[data-filter]').forEach(b => b.classList.remove('active'));
-        btn.classList.add('active');
-        activeFilterTab = btn.dataset.filter || 'all';
-        applyFilters();
-      });
-    });
-
-    // Controladores de navegación de página
-    const scrollContainer = document.getElementById('pagination-top');
-
-    function goToPrevPage(e: Event) {
-      e.preventDefault();
-      if (currentPage > 1) {
-        currentPage--;
-        applyFilters(false);
-        if (scrollContainer) scrollContainer.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      }
-    }
-
-    function goToNextPage(e: Event) {
-      e.preventDefault();
-      if (currentPage < totalPages) {
-        currentPage++;
-        applyFilters(false);
-        if (scrollContainer) scrollContainer.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      }
-    }
-
-    if (btnPrev) btnPrev.addEventListener('click', goToPrevPage);
-    if (btnPrevTop) btnPrevTop.addEventListener('click', goToPrevPage);
-    if (btnNext) btnNext.addEventListener('click', goToNextPage);
-    if (btnNextTop) btnNextTop.addEventListener('click', goToNextPage);
-
-    // Initial run
-    applyFilters();
   </script>
 </DashboardLayout>
