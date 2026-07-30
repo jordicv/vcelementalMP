@@ -59,8 +59,15 @@ export const GET: APIRoute = async ({ request }) => {
       conditions.push(ilike(tenders.buyerRegion, `%${region}%`));
     }
 
-    if (status !== 'all') {
-      conditions.push(eq(tenders.status, status));
+    if (status === 'Publicada') {
+      // "Abiertas" = status is Publicada AND closeDate is in the future
+      conditions.push(eq(tenders.status, 'Publicada'));
+      conditions.push(sql`${tenders.closeDate} > NOW()`);
+    } else if (status === 'Cerrada') {
+      // "Cerradas" = status is Cerrada/Adjudicada OR closeDate has passed
+      conditions.push(sql`(${tenders.status} IN ('Cerrada', 'Adjudicada') OR ${tenders.closeDate} <= NOW())`);
+    } else if (status === 'Adjudicada') {
+      conditions.push(eq(tenders.status, 'Adjudicada'));
     }
 
     if (scoreMin > 0) {
@@ -71,6 +78,11 @@ export const GET: APIRoute = async ({ request }) => {
       conditions.push(gte(tenders.scoreTotalVal, 70));
     } else if (tab === 'compra-agil') {
       conditions.push(like(tenders.externalCode, '%-CO%'));
+    } else if (tab === 'closing') {
+      // Cierran en los próximos 7 días y aún están abiertas
+      conditions.push(sql`${tenders.closeDate} > NOW()`);
+      conditions.push(sql`${tenders.closeDate} <= NOW() + INTERVAL '7 days'`);
+      conditions.push(sql`${tenders.status} NOT IN ('Cerrada', 'Adjudicada')`);
     }
 
     const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
