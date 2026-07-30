@@ -1,7 +1,7 @@
 ---
 import DashboardLayout from '../../layouts/DashboardLayout.astro';
 import { db, tenders, companies } from '../../db/index';
-import { desc, sql } from 'drizzle-orm';
+import { desc, sql, eq } from 'drizzle-orm';
 import { RUBRO_KEYWORDS } from '../../services/scoring/rubro.scorer';
 
 function cleanRegionName(regionStr: string | null): string {
@@ -32,12 +32,16 @@ let regionsList: string[] = [];
 let errorMsg = '';
 
 try {
-  const compList = await db.select().from(companies).limit(1);
-  if (compList.length > 0) {
-    company = compList[0] as any;
+  if (Astro.locals.company) {
+    company = Astro.locals.company as any;
+  } else {
+    const compList = await db.select().from(companies).limit(1);
+    if (compList.length > 0) {
+      company = compList[0] as any;
+    }
   }
   
-  const liveTenders = await db
+  const baseQuery = db
     .select({
       id: tenders.id,
       externalCode: tenders.externalCode,
@@ -62,8 +66,11 @@ try {
       objetivo: sql<string>`${tenders.rawData}->>'Objetivo'`,
       fechaPublicacion: sql<string>`${tenders.rawData}->>'FechaPublicacion'`,
     })
-    .from(tenders)
-    .orderBy(desc(tenders.scoreTotalVal));
+    .from(tenders);
+
+  const liveTenders = company.id
+    ? await baseQuery.where(eq(tenders.companyId, company.id)).orderBy(desc(tenders.scoreTotalVal)).limit(150)
+    : await baseQuery.orderBy(desc(tenders.scoreTotalVal)).limit(150);
 
   mockTenders = liveTenders.map(t => {
     const budgetVal = t.budget ? parseFloat(t.budget) : 0;
