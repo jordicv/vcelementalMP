@@ -1,7 +1,7 @@
 ---
 import DashboardLayout from '../../layouts/DashboardLayout.astro';
 import { db, tenders, companies } from '../../db/index';
-import { desc, sql, eq } from 'drizzle-orm';
+import { desc, sql, eq, count } from 'drizzle-orm';
 import { RUBRO_KEYWORDS } from '../../services/scoring/rubro.scorer';
 
 function cleanRegionName(regionStr: string | null): string {
@@ -14,7 +14,7 @@ function cleanRegionName(regionStr: string | null): string {
   if (clean.includes('Antofagasta')) return 'Región de Antofagasta';
   if (clean.includes('Arica') || clean.includes('Parinacota')) return 'Región de Arica y Parinacota';
   if (clean.includes('Tarapacá') || clean.includes('Tarapaca')) return 'Región de Tarapacá';
-  if (clean.includes('Libertador') || clean.includes('O\'Higgins') || clean.includes('O´Higgins')) return 'Región de O\'Higgins';
+  if (clean.includes('Libertador') || clean.includes('O\'Higgins') || clean.includes('O´Higgins')) return 'Región del O\'Higgins';
   if (clean.includes('Maule')) return 'Región del Maule';
   if (clean.includes('Ñuble') || clean.includes('Nuble')) return 'Región del Ñuble';
   if (clean.includes('Biobío') || clean.includes('Biobio') || clean.includes('Bío Bío')) return 'Región del Biobío';
@@ -38,8 +38,12 @@ let company = { id: '', name: 'VC Elemental', industry: 'Sin rubro específico',
 let mockTenders: any[] = [];
 let regionsList: string[] = [];
 let errorMsg = '';
+let totalInDb = 0;
 
 try {
+  const countResult = await db.select({ total: count() }).from(tenders);
+  totalInDb = countResult[0]?.total ?? 0;
+
   if (Astro.locals.company) {
     company = Astro.locals.company as any;
   } else {
@@ -177,7 +181,7 @@ try {
 const cronSecret = process.env.CRON_SECRET || '';
 
 const kpis = {
-  total: mockTenders.length,
+  total: totalInDb > 0 ? totalInDb : mockTenders.length,
   recommended: mockTenders.filter(t => t.scoreTotal >= 70).length,
   closingSoon: mockTenders.filter(t => {
     const days = Math.floor((t.closeDate.getTime() - Date.now()) / 86400000);
