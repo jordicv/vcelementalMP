@@ -1,7 +1,7 @@
 ---
 import DashboardLayout from '../../layouts/DashboardLayout.astro';
 import { db, tenders, companies } from '../../db/index';
-import { desc } from 'drizzle-orm';
+import { desc, sql } from 'drizzle-orm';
 import { RUBRO_KEYWORDS } from '../../services/scoring/rubro.scorer';
 
 function cleanRegionName(regionStr: string | null): string {
@@ -38,7 +38,30 @@ try {
   }
   
   const liveTenders = await db
-    .select()
+    .select({
+      id: tenders.id,
+      externalCode: tenders.externalCode,
+      title: tenders.title,
+      status: tenders.status,
+      budget: tenders.budget,
+      currency: tenders.currency,
+      closeDate: tenders.closeDate,
+      buyerName: tenders.buyerName,
+      buyerRegion: tenders.buyerRegion,
+      buyerRegionCode: tenders.buyerRegionCode,
+      buyerCommune: tenders.buyerCommune,
+      scoreTotalVal: tenders.scoreTotalVal,
+      scoreRubro: tenders.scoreRubro,
+      scoreRegion: tenders.scoreRegion,
+      scoreBudget: tenders.scoreBudget,
+      scoreUrgency: tenders.scoreUrgency,
+      scoreLabel: tenders.scoreLabel,
+      aiSummary: tenders.aiSummary,
+      createdAt: tenders.createdAt,
+      description: sql<string>`${tenders.rawData}->>'Descripcion'`,
+      objetivo: sql<string>`${tenders.rawData}->>'Objetivo'`,
+      fechaPublicacion: sql<string>`${tenders.rawData}->>'FechaPublicacion'`,
+    })
     .from(tenders)
     .orderBy(desc(tenders.scoreTotalVal));
 
@@ -48,7 +71,7 @@ try {
     const isNoRegion = company.region === 'Sin región específica';
 
     // Clasificar rubro de la licitación de forma dinámica para filtrar en la UI
-    const tenderDesc = (t.rawData as any)?.Descripcion || (t.rawData as any)?.Objetivo || '';
+    const tenderDesc = t.description || t.objetivo || '';
     const textCleaned = ` ${t.title} ${t.aiSummary || ''} ${tenderDesc} `.toLowerCase().replace(/[.,/#!$%^&*;:{}=\-_`~()]/g, " ");
     let detectedIndustry = 'Otros';
     let maxMatches = 0;
@@ -82,7 +105,7 @@ try {
       status:       computedStatus,
       budget:       budgetVal,
       currency:     t.currency || 'CLP', // Leemos la moneda original de la DB
-      publishDate:  (t.rawData as any)?.FechaPublicacion ? new Date((t.rawData as any).FechaPublicacion) : (t.createdAt || new Date()),
+      publishDate:  t.fechaPublicacion ? new Date(t.fechaPublicacion) : (t.createdAt || new Date()),
       closeDate:    closeDateObj,
       buyerName:    t.buyerName || 'Organismo Público',
       buyerRegion:  t.buyerRegion || 'Región Metropolitana',

@@ -17,8 +17,12 @@ async function sleep(ms: number) {
 async function handleSync(request: Request) {
   const cronSecret = process.env.CRON_SECRET;
   const authHeader = request.headers.get('authorization');
+  const url = new URL(request.url);
+  const secretParam = url.searchParams.get('secret') || url.searchParams.get('cronSecret');
 
-  if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
+  const isAuthorized = !cronSecret || authHeader === `Bearer ${cronSecret}` || secretParam === cronSecret;
+
+  if (!isAuthorized) {
     console.warn('[API Sync] Intento de acceso no autorizado.');
     return new Response(JSON.stringify({ error: 'No autorizado' }), { status: 401 });
   }
