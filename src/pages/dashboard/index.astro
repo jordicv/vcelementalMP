@@ -249,7 +249,7 @@ function scoreEmoji(score: number) {
 }
 ---
 <DashboardLayout title="Dashboard de Licitaciones" activeTab="dashboard">
-  <style>
+  <style is:global>
     /* KPIs */
     .kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; padding: 24px 32px; }
     .kpi-card {
@@ -387,6 +387,14 @@ function scoreEmoji(score: number) {
       background: rgba(34,197,94,0.1); border: 1px solid rgba(34,197,94,0.2);
       color: var(--green); padding: 4px 12px; border-radius: 50px;
       font-size: 13px; font-weight: 700; margin-top: 8px;
+    }
+
+    /* Score Progress Bars */
+    .bar-track {
+      height: 6px; background: var(--border); border-radius: 3px; overflow: hidden;
+    }
+    .bar-fill {
+      height: 100%; border-radius: 3px; transition: width 0.3s ease;
     }
   </style>
 
