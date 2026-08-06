@@ -17,7 +17,8 @@
     "db:studio": "npx drizzle-kit studio",
     "db:seed": "npx tsx src/db/seed.ts",
     "workers": "npx tsx src/workers/run.ts",
-    "db:sync": "npx tsx src/db/sync_direct.ts"
+    "db:sync": "npx tsx src/db/sync_direct.ts",
+    "test": "npx tsx src/tests/test_50_scenarios.ts"
   },
   "dependencies": {
     "@astrojs/node": "^11.0.2",

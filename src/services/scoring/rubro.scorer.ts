@@ -674,7 +674,7 @@ export function scoreRubro(
   const related = RUBRO_RELATED[companyIndustry] ?? [];
   for (const relRubro of related) {
     const relKeywords = RUBRO_KEYWORDS[relRubro] ?? [];
-    const relMatches = relKeywords.filter(k => text.includes(k.toLowerCase()));
+    const relMatches = relKeywords.filter(k => textCleaned.includes(k.toLowerCase()));
     if (relMatches.length >= 2) return { score: 10, label: `Rubro periférico (${relRubro})`, matches: relMatches };
   }
 

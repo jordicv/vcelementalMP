@@ -1,4 +1,4 @@
-function decodeHtmlEntities(str: string): string {
+export function decodeHtmlEntities(str: string): string {
   if (!str) return '';
   const entities: Record<string, string> = {
     '&nbsp;': ' ',
@@ -32,7 +32,7 @@ function decodeHtmlEntities(str: string): string {
   return result;
 }
 
-function parseBasesHtml(html: string): Record<string, string> {
+export function parseBasesHtml(html: string): Record<string, string> {
   const parts = html.split(/<div\s+id="Ficha(\d+)"/i);
   const result: Record<string, string> = {};
 

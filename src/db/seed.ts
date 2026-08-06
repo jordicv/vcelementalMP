@@ -32,9 +32,11 @@ async function seed() {
   const activeCompany = company || (await db.select().from(companies).limit(1))[0];
   console.log('[Seed] Empresa activa:', activeCompany.name, 'ID:', activeCompany.id);
 
-  // 2. Crear usuario administrador
-  const passwordHash = bcrypt.hashSync('Jose.Valdes1', 10);
-  const [user] = await db
+  // 2. Crear usuarios
+  const passwordHashJose = bcrypt.hashSync('Jose.Valdes1', 10);
+  const passwordHashCarola = bcrypt.hashSync('Jose.Valdes1', 10);
+
+  const [userJose] = await db
     .insert(users)
     .values({
       companyId: activeCompany.id,
@@ -42,17 +44,35 @@ async function seed() {
       name:      'José Valdés',
       role:      'owner',
       phone:     '+56912345678',
-      passwordHash: passwordHash,
+      passwordHash: passwordHashJose,
     })
     .onConflictDoUpdate({
       target: users.email,
       set: {
-        passwordHash: passwordHash,
+        passwordHash: passwordHashJose,
       }
     })
     .returning();
 
-  console.log('[Seed] Usuario activo:', user ? user.name : 'Ya existe');
+  const [userCarola] = await db
+    .insert(users)
+    .values({
+      companyId: activeCompany.id,
+      email:     'carola@vcelemental.cl',
+      name:      'Carola Valdés',
+      role:      'admin',
+      phone:     '+56987654321',
+      passwordHash: passwordHashCarola,
+    })
+    .onConflictDoUpdate({
+      target: users.email,
+      set: {
+        passwordHash: passwordHashCarola,
+      }
+    })
+    .returning();
+
+  console.log('[Seed] Usuarios activos:', userJose ? userJose.name : 'José', '|', userCarola ? userCarola.name : 'Carola');
 
   // 3. Sembrar la licitación real 1067476-19-LE26 de SERPAT
   const rawDataForLE26 = {

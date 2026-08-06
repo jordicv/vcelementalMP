@@ -61,7 +61,7 @@ async function mpFetch(path: string, ticket: string): Promise<unknown> {
 }
 
 // Formatea una fecha como DDMMYYYY para la API de MercadoPublico
-function formatDateDDMMYYYY(date: Date): string {
+export function formatDateDDMMYYYY(date: Date): string {
   const day   = String(date.getDate()).padStart(2, '0');
   const month = String(date.getMonth() + 1).padStart(2, '0');
   const year  = date.getFullYear();
@@ -69,7 +69,7 @@ function formatDateDDMMYYYY(date: Date): string {
 }
 
 // Genera un arreglo de fechas de los últimos N días, más algunos días hábiles anteriores
-function getRecentWorkDays(daysBack = 45): Date[] {
+export function getRecentWorkDays(daysBack = 45): Date[] {
   const dates: Date[] = [];
   const today = new Date();
   for (let i = 0; i <= daysBack; i++) {
