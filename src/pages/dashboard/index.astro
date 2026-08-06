@@ -429,7 +429,7 @@ function scoreEmoji(score: number) {
     <div class="kpi-card">
       <div class="kpi-icon">🏛️</div>
       <div class="kpi-value">{kpis.total}</div>
-      <div class="kpi-label">Licitaciones hoy</div>
+      <div class="kpi-label">Licitaciones en Radar</div>
     </div>
     <div class="kpi-card">
       <div class="kpi-icon">🟢</div>
@@ -481,8 +481,8 @@ function scoreEmoji(score: number) {
       </select>
 
       <select class="search-box" id="status-select">
+        <option value="Publicada" selected>🟢 Abiertas (Publicadas)</option>
         <option value="all">🌐 Todos los Estados</option>
-        <option value="Publicada">🟢 Abiertas (Publicadas)</option>
         <option value="Cerrada">🔴 Cerradas</option>
         <option value="Adjudicada">🔵 Adjudicadas</option>
       </select>
@@ -757,7 +757,7 @@ function scoreEmoji(score: number) {
       const query = searchInput?.value || '';
       const region = regionSelect?.value || 'all';
       const category = categorySelect?.value || 'all';
-      const status = statusSelect?.value || 'all';
+      const status = statusSelect?.value || 'Publicada';
       const scoreMin = scoreFilterActive ? 70 : 0;
       const tab = activeFilterTab;
 
