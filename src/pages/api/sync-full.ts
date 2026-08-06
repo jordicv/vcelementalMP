@@ -47,8 +47,58 @@ async function handleSync(request: Request) {
         console.log('[API Sync Full] Iniciando sincronización nocturna completa para:', company.name);
         send({ status: 'fetching', percent: 2, message: 'Conectando con ChileCompra...' });
 
-        // 1. Obtener lista completa de licitaciones activas desde la API (puede tardar más)
-        const mpTenders = await getTendersByStatus('Publicada', company.apiTicket || '');
+        // 1. Obtener lista completa de licitaciones activas desde la API (incluyendo Compra Ágil)
+        send({ status: 'fetching', percent: 3, message: 'Realizando barrido de licitaciones abiertas y Compra Ágil...' });
+        
+        const openMap = new Map<string, any>();
+        try {
+          const published = await getTendersByStatus('Publicada', company.apiTicket || '');
+          for (const t of published) {
+            if (t.CodigoExterno) openMap.set(t.CodigoExterno, t);
+          }
+        } catch (e: any) {
+          console.warn('[API Sync Full] Estado publicada warning:', e.message);
+        }
+
+        // Barrido por fechas de los últimos 30 días hábiles
+        const workDays = getRecentWorkDays(30);
+        const now = new Date();
+        for (const date of workDays) {
+          const ds = formatDateDDMMYYYY(date);
+          let pagina = 1;
+          while (true) {
+            try {
+              const url = `https://api.mercadopublico.cl/servicios/v1/publico/licitaciones.json?fecha=${ds}&pagina=${pagina}&ticket=${company.apiTicket || ''}`;
+              const res = await fetch(url, {
+                headers: {
+                  'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                  'Accept': 'application/json',
+                },
+                signal: AbortSignal.timeout(15_000),
+              });
+              if (!res.ok) break;
+              const data = await res.json() as any;
+              const list = data?.Listado || [];
+              if (list.length === 0) break;
+
+              for (const t of list) {
+                if (!t.CodigoExterno) continue;
+                const isPublicada = t.CodigoEstado === 5 || t.Estado === 'Publicada';
+                const closeDate = t.FechaCierre ? new Date(t.FechaCierre) : null;
+                const isOpenDate = closeDate && closeDate > now;
+                if (isPublicada || isOpenDate) {
+                  openMap.set(t.CodigoExterno, t);
+                }
+              }
+              pagina++;
+              await sleep(40);
+            } catch {
+              break;
+            }
+          }
+        }
+
+        const mpTenders = Array.from(openMap.values());
         if (!mpTenders || mpTenders.length === 0) {
           send({ status: 'complete', percent: 100, message: 'Al día. No se encontraron licitaciones nuevas.' });
           controller.close();

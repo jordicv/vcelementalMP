@@ -47,17 +47,29 @@ export interface MPResponse {
   Listado: MPTender[];
 }
 
-async function mpFetch(path: string, ticket: string): Promise<unknown> {
+async function mpFetch(path: string, ticket: string, retries = 3): Promise<unknown> {
   const url = `${BASE_URL}${path}&ticket=${ticket}`;
-  const res = await fetch(url, {
-    headers: {
-      'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-      'Accept': 'application/json',
-    },
-    signal: AbortSignal.timeout(20_000),
-  });
-  if (!res.ok) throw new Error(`MP API error: ${res.status} ${res.statusText}`);
-  return res.json();
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    try {
+      const res = await fetch(url, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Accept': 'application/json',
+        },
+        signal: AbortSignal.timeout(20_000),
+      });
+      if (res.status === 429 && attempt < retries) {
+        console.warn(`[MP API] Rate limit (429). Reintentando en ${attempt * 1200}ms...`);
+        await new Promise(r => setTimeout(r, attempt * 1200));
+        continue;
+      }
+      if (!res.ok) throw new Error(`MP API error: ${res.status} ${res.statusText}`);
+      return await res.json();
+    } catch (err: any) {
+      if (attempt === retries) throw err;
+      await new Promise(r => setTimeout(r, attempt * 1000));
+    }
+  }
 }
 
 // Formatea una fecha como DDMMYYYY para la API de MercadoPublico

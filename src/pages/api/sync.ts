@@ -2,7 +2,7 @@ import 'dotenv/config';
 import type { APIRoute } from 'astro';
 import { db, companies, tenders } from '../../db/index';
 import { inArray } from 'drizzle-orm';
-import { getTodayTenders, getTenderDetail } from '../../services/mercadopublico';
+import { getTodayTenders, getTenderDetail, getRecentWorkDays, formatDateDDMMYYYY } from '../../services/mercadopublico';
 import { calculateScore } from '../../services/scoring/index';
 import { resolveBasesFromFicha } from '../../services/scraper';
 
@@ -44,11 +44,49 @@ async function handleSync(request: Request) {
           return;
         }
 
-        console.log('[API Sync] Iniciando sincronización manual completa para:', company.name);
-        send({ status: 'fetching', percent: 2, message: 'Conectando con ChileCompra...' });
+        console.log('[API Sync] Iniciando sincronización manual para:', company.name);
+        send({ status: 'fetching', percent: 2, message: 'Buscando licitaciones abiertas y Compra Ágil...' });
 
-        // 1. Obtener lista de licitaciones de hoy desde la API (tiempo real rápido)
-        const mpTenders = await getTodayTenders(company.apiTicket || '');
+        const openMap = new Map<string, any>();
+        const workDays = getRecentWorkDays(15);
+        const now = new Date();
+
+        for (const date of workDays) {
+          const ds = formatDateDDMMYYYY(date);
+          let pagina = 1;
+          while (true) {
+            try {
+              const fetchUrl = `https://api.mercadopublico.cl/servicios/v1/publico/licitaciones.json?fecha=${ds}&pagina=${pagina}&ticket=${company.apiTicket || ''}`;
+              const res = await fetch(fetchUrl, {
+                headers: {
+                  'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                  'Accept': 'application/json',
+                },
+                signal: AbortSignal.timeout(12_000),
+              });
+              if (!res.ok) break;
+              const data = await res.json() as any;
+              const list = data?.Listado || [];
+              if (list.length === 0) break;
+
+              for (const t of list) {
+                if (!t.CodigoExterno) continue;
+                const isPublicada = t.CodigoEstado === 5 || t.Estado === 'Publicada';
+                const closeDate = t.FechaCierre ? new Date(t.FechaCierre) : null;
+                const isOpenDate = closeDate && closeDate > now;
+                if (isPublicada || isOpenDate) {
+                  openMap.set(t.CodigoExterno, t);
+                }
+              }
+              pagina++;
+              await sleep(30);
+            } catch {
+              break;
+            }
+          }
+        }
+
+        const mpTenders = Array.from(openMap.values());
         if (!mpTenders || mpTenders.length === 0) {
           send({ status: 'complete', percent: 100, message: 'Al día. No se encontraron licitaciones nuevas.' });
           controller.close();
