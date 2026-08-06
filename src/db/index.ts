@@ -25,7 +25,7 @@ const globalForDb = globalThis as unknown as { conn: ReturnType<typeof postgres>
 const client = globalForDb.conn ?? postgres(connectionString || 'postgresql://localhost:5432/placeholder_db', {
   max: isProduction ? 1 : 10,
   prepare: false, // Requerido para Supabase Transaction Pooler (PgBouncer / Supavisor)
-  ssl: isSupabaseOrCloud ? 'require' : false,
+  ssl: isSupabaseOrCloud ? { rejectUnauthorized: false } : false,
   idle_timeout: 20,
   connect_timeout: 10,
 });

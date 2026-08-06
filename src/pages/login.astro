@@ -74,7 +74,8 @@ if (Astro.request.method === 'POST') {
     }
   } catch (err: any) {
     console.error('[Login Post Error]:', err);
-    errorMsg = `Error en el servidor: ${err.message || 'Inténtalo más tarde.'}`;
+    const detailMsg = err?.cause?.message || err?.detail || err?.message || 'Inténtalo más tarde.';
+    errorMsg = `Error en la base de datos: ${detailMsg}`;
   }
 }
 ---
